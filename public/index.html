@@ -910,9 +910,22 @@ const cvPt = (ev) => { const b = $('cv').getBoundingClientRect(); return { x: ev
 function endDrag() {
   drag = null; board.dragTo = null; board.hoverMove = null;
 }
+// Generous press: an exact hit wins; a press that misses every node snaps to the
+// nearest node it could act on (a red node with attacks, the selected node, or one
+// of its targets) within the same slop as a drag release.
+function pressNode(p) {
+  const hit = board.hitNode(p.x, p.y);
+  if (hit) return hit;
+  const ids = new Set(board.targetsFor.keys());
+  if (board.selected !== null) {
+    ids.add(board.selected);
+    for (const t of board.targetsFor.get(board.selected) ?? []) ids.add(t);
+  }
+  return board.nearestOf(p.x, p.y, ids);
+}
 $('cv').addEventListener('pointerdown', (ev) => {
   if (!M || !state || state.over || inputLocked || sweeping) return;
-  const p = cvPt(ev), n = board.hitNode(p.x, p.y);
+  const p = cvPt(ev), n = pressNode(p);
   if (!n) { board.selected = null; board.draw(); return; }
   if (board.selected !== null && board.targetsFor.get(board.selected)?.has(n.id)) {
     yourAttack(board.selected, n.id); return;
@@ -920,13 +933,13 @@ $('cv').addEventListener('pointerdown', (ev) => {
   if (n.id === board.selected) {
     // second press on the selected node: could be a deselect-tap or the start of a
     // drag — decide on pointerup (moved onto a target = attack, else deselect)
-    drag = { from: n.id, pid: ev.pointerId, retap: true };
+    drag = { from: n.id, pid: ev.pointerId, retap: true, at: p };
     $('cv').setPointerCapture(ev.pointerId);
     return;
   }
   if (n.owner === 'red' && n.strength > 1 && board.targetsFor.has(n.id)) {
     board.selected = n.id; setStatus('Tap or drag to a target.');
-    drag = { from: n.id, pid: ev.pointerId };
+    drag = { from: n.id, pid: ev.pointerId, at: p };
     $('cv').setPointerCapture(ev.pointerId);
   } else {
     board.selected = null;
@@ -934,12 +947,20 @@ $('cv').addEventListener('pointerdown', (ev) => {
   }
   board.draw();
 });
+// Where a drag from `from` currently points: an exact hit on the origin or a target,
+// else the nearest of them within the slop. The origin competes with its targets, so
+// an off-center press that snapped onto it doesn't attack a neighbor on release.
+function dragNode(p, from) {
+  const hit = board.hitNode(p.x, p.y), targets = board.targetsFor.get(from);
+  if (hit && (hit.id === from || targets?.has(hit.id))) return hit;
+  return board.nearestOf(p.x, p.y, new Set([from, ...(targets ?? [])]));
+}
+// a press that barely moves is a tap, never an attack, wherever it snapped
+const dragged = (p) => Math.hypot(p.x - drag.at.x, p.y - drag.at.y) > board.layout.r * 0.6;
 $('cv').addEventListener('pointermove', (ev) => {
   if (!drag || ev.pointerId !== drag.pid) return;
-  const p = cvPt(ev), n = board.hitNode(p.x, p.y);
-  // forgiving: snap to the nearest highlighted neighbor within a generous radius,
-  // unless the pointer is still literally on the origin
-  const tgt = (n && n.id === drag.from) ? null : board.nearestOf(p.x, p.y, board.targetsFor.get(drag.from));
+  const p = cvPt(ev), n = dragNode(p, drag.from);
+  const tgt = dragged(p) && n && n.id !== drag.from ? n : null;
   const moved = !n || n.id !== drag.from;
   if (moved) drag.retap = false;                   // it's a drag now, not a tap
   board.hoverMove = tgt ? { from: drag.from, to: tgt.id } : null;
@@ -949,8 +970,8 @@ $('cv').addEventListener('pointermove', (ev) => {
 function dragUp(ev) {
   if (!drag || ev.pointerId !== drag.pid) return;
   const { from, retap } = drag;
-  const p = cvPt(ev), n = board.hitNode(p.x, p.y);
-  const tgt = (n && n.id === from) ? null : board.nearestOf(p.x, p.y, board.targetsFor.get(from));
+  const p = cvPt(ev), n = dragNode(p, from);
+  const tgt = dragged(p) && n && n.id !== from ? n : null;
   endDrag();
   if (tgt && !inputLocked && !sweeping) {          // released on/near a highlighted target
     yourAttack(from, tgt.id); return;
