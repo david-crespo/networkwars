@@ -42,7 +42,7 @@ export function dirArrow(f, t) {
 // Classic timings follow the reference's distinct focus / attrition / settle beats.
 // Fast scales every beat; Instant skips the entire replay, including queued frames.
 export const TIMING = Object.freeze({ focus: 240, casualty: 140, settle: 300,
-  handoff: 220, reinforce: 520, gap: 100, arrow: 420 });
+  handoff: 220, reinforce: 520, gap: 100, arrow: 640 });
 
 function octagon(ctx, x, y, r) {
   ctx.beginPath();
@@ -291,21 +291,36 @@ export class Board {
     const skin = { cv, size }; this.skins.set(key, skin); return skin;
   }
 
-  // Arrow travels from the source rim to the target rim, always on the link.
-  // Static move previews use the default endpoint; battles supply their clock.
-  _drawArrow(p1, p2, color, progress = 1) {
-    const ctx = this.ctx, r = this.layout.r;
+  // Arrow rides the link itself (ground point to ground point), between the two
+  // prisms: each end clears the node's base and its raised top face (h1/h2), so it
+  // never covers a numeral. Static move previews sit at the target end; battles
+  // supply a looping clock and the arrow eases along and fades at both ends of the
+  // loop, so the restart never shows as a jump.
+  _drawArrow(p1, p2, color, progress = null, h1 = 0, h2 = 0, alpha = 1) {
+    const ctx = this.ctx, r = this.layout.r, R = r + 1;
     const dx = p2.x - p1.x, dy = p2.y - p1.y;
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len, uy = dy / len;          // unit p1->p2
     const px = -uy, py = ux;                      // perpendicular
-    const gap = len - 2 * (r + 1);
+    // distance along the link from a ground point (direction with y-component dirY)
+    // to where it leaves a radius-R disc around the top face, h above the ground
+    const clear = (h, dirY) => Math.max(R, -dirY * h + Math.sqrt(Math.max(0, R*R - h*h * (1 - dirY*dirY))));
+    const c1 = clear(h1, uy), c2 = clear(h2, -uy);
+    const gap = len - c1 - c2;
     if (gap <= 0) return;
     const ah = Math.min(Math.max(5, r * .45), gap * .45);
     const aw = Math.min(Math.max(3, r * .25), ah * .7);
-    const travel = r + 1 + ah + (gap - ah) * Math.max(0, Math.min(1, progress));
+    let t = 1;
+    if (progress !== null) {
+      t = .5 - .5 * Math.cos(Math.PI * progress);  // ease in-out
+      alpha *= Math.sin(Math.PI * progress);       // fade in and out each loop
+    }
+    if (alpha <= .01) return;
+    const travel = c1 + ah + (gap - ah) * t;
     const tipX = p1.x + ux * travel, tipY = p1.y + uy * travel;
     const bx = tipX - ux * ah, by = tipY - uy * ah;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, alpha);
     ctx.beginPath();
     ctx.moveTo(tipX, tipY);
     ctx.lineTo(bx + px * aw, by + py * aw);
@@ -314,7 +329,7 @@ export class Board {
     ctx.fillStyle = color;
     ctx.shadowColor = color; ctx.shadowBlur = 10;
     ctx.fill();
-    ctx.shadowBlur = 0;
+    ctx.restore();
   }
 
   draw() {
@@ -348,13 +363,14 @@ export class Board {
     ctx.setLineDash([]); ctx.shadowBlur = 0;
 
     // nodes: links meet at the ground (pos); everything that marks a node sits on its raised top
-    const tops = [];
+    const tops = [], heights = [];
     for (const n of nodes) {
       const ov = this.overrides.get(n.id);
       const owner = (ov && ov.owner) ? ov.owner : n.owner;
       const strength = ov ? ov.strength : n.strength;
       const h = nodeHeight(strength, layout.r);
       const p = tops[n.id] = { x: pos[n.id].x, y: pos[n.id].y - h };
+      heights[n.id] = h;
       const isAtk = battle && n.id === battle.from;
       const isDef = battle && n.id === battle.to;
       const isSel = n.id === selected || isAtk;
@@ -394,14 +410,21 @@ export class Board {
       ctx.restore();
     }
 
-    if (battle && tops[battle.from] && tops[battle.to])
-      this._drawArrow(tops[battle.from], tops[battle.to], '#effff8',
-        ((battle.elapsed || 0) % TIMING.arrow) / TIMING.arrow);
+    // The battle arrow clears the tallest each column gets during the fight (fixed
+    // up front), so the path doesn't shift as casualties shorten the stacks.
+    if (battle && battle.elapsed != null && pos[battle.from] && pos[battle.to]) {
+      const [hf, ht] = battle.clear
+        ? battle.clear.map(st => nodeHeight(st, layout.r))
+        : [heights[battle.from], heights[battle.to]];
+      this._drawArrow(pos[battle.from], pos[battle.to], '#effff8',
+        (battle.elapsed % TIMING.arrow) / TIMING.arrow, hf, ht, this.light);
+    }
 
     // hovered suggestion: a directional arrow along the edge (drawn on top of nodes)
     if (hoverMove && hoverMove.from != null && hoverMove.to != null) {
-      const pf = tops[hoverMove.from], pt = tops[hoverMove.to];
-      if (pf && pt) this._drawArrow(pf, pt, '#ffd36b');
+      const pf = pos[hoverMove.from], pt = pos[hoverMove.to];
+      if (pf && pt) this._drawArrow(pf, pt, '#ffd36b', null,
+        heights[hoverMove.from], heights[hoverMove.to]);
     }
     // drag-to-attack in progress: a free line from the selected node to the pointer
     // (once the pointer is over a legal target the page swaps this for hoverMove)
@@ -453,7 +476,8 @@ export class Board {
     const { from, to, fromStart, toStart, flips } = e;
     let a = fromStart, d = toStart;
     try {
-      this.battle = { from, to, elapsed: 0 };
+      this.battle = { from, to, elapsed: 0,
+        clear: [Math.max(a, e.fromStrength), Math.max(d, e.toStrength)] };
       this.overrides.set(from, { strength: a });
       this.overrides.set(to, { strength: d });
       await this._beat(TIMING.focus, t => { this.light = t; });
