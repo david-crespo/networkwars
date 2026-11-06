@@ -11,7 +11,7 @@ const releaseOf = (files: string[]) =>
 const assetsIn = (bundle: Record<string, unknown>) =>
   Object.keys(bundle).filter((f) => f.startsWith('assets/'))
 
-/** Emit src/sw.js as /sw.js (its scope must cover the page), pinned to this release. */
+/** Emit src/sw.ts as /sw.js (its scope must cover the page), pinned to this release. */
 function serviceWorker(): Plugin {
   return {
     name: 'nw-service-worker',
@@ -26,10 +26,10 @@ function serviceWorker(): Plugin {
     },
     async generateBundle(_, bundle) {
       const precache = assetsIn(bundle)
-      const source = readFileSync('src/sw.js', 'utf8')
-        .replace(/^const RELEASE = null;/m, `const RELEASE = ${JSON.stringify(releaseOf(precache))};`)
-        .replace(/^const PRECACHE = \[\];/m, `const PRECACHE = ${JSON.stringify(precache)};`)
-      const { code } = await transformWithOxc(source, 'sw.js')
+      const source = readFileSync('src/sw.ts', 'utf8')
+        .replace(/^const RELEASE\b.*$/m, `const RELEASE = ${JSON.stringify(releaseOf(precache))};`)
+        .replace(/^const PRECACHE\b.*$/m, `const PRECACHE = ${JSON.stringify(precache)};`)
+      const { code } = await transformWithOxc(source, 'sw.ts')
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: code })
     },
   }

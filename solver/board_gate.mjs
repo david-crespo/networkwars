@@ -2,8 +2,8 @@
 // These check every casualty and boundary, not pixels (visually checked in browser).
 // Run: node solver/board_gate.mjs
 import assert from 'node:assert/strict';
-import { Board, TIMING, NODE_PALETTE } from '../src/board.js';
-import { loadEngine, FACTIONS } from '../src/fastnw.js';
+import { Board, TIMING, NODE_PALETTE } from '../src/board.ts';
+import { loadEngine, FACTIONS } from '../src/fastnw.ts';
 
 const E = await loadEngine();
 const board = new Board({ getContext: () => ({}) }, {});

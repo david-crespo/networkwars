@@ -1,4 +1,4 @@
-// Gate for engine.worker.js's between-chunk yield and its liveness reporting.
+// Gate for engine.worker.ts's between-chunk yield and its liveness reporting.
 // On iOS, WebKit brokers every MessagePort through its networking process; when
 // iOS suspends or kills that process, ports stop delivering with no error. The
 // worker's search used to yield through a MessageChannel and then hung forever,
@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 
 globalThis.MessageChannel = class {
-  constructor() { throw new Error('engine.worker.js must not use MessageChannel (iOS drops ports)'); }
+  constructor() { throw new Error('engine.worker.ts must not use MessageChannel (iOS drops ports)'); }
 };
 globalThis.self = globalThis;
 const pending = new Map(), beats = [], pongs = [];
@@ -23,7 +23,7 @@ self.postMessage = (msg) => {
   const r = pending.get(msg.id);
   if (r) { pending.delete(msg.id); r(msg.result); }
 };
-await import('../src/engine.worker.js');
+await import('../src/engine.worker.ts');
 function api(path, method = 'GET', body = null) {
   const id = String(++nextReq);
   return new Promise((res) => { pending.set(id, res); self.onmessage({ data: { id, path, method, body } }); });

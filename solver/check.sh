@@ -23,5 +23,6 @@ done
 node solver/worker_gate.mjs 40
 node solver/yield_gate.mjs
 node solver/review_gate.mjs 11 4
+npm run typecheck
 npm run build
 git diff --check

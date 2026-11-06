@@ -29,11 +29,16 @@
   - `solver/fastnw.py` — ctypes client (marshals int32 arrays; implements no rules).
   - `solver/network_wars.py` — a readable State/Node shim that delegates every rule
     to the C engine, so the Python analysis tooling keeps an object API.
-  - `index.html` + `src/` — the **self-contained WASM frontend**, built with Vite
-    (`npm run dev` / `npm run build` into `dist/`; `vite.config.ts`): `fast_engine.c` is compiled to
+  - `index.html` + `src/` — the **self-contained WASM frontend**, TypeScript built with Vite
+    (`npm run dev` / `npm run build` into `dist/`; `vite.config.ts`). `npm run typecheck` runs
+    tsc (strict) over the page, the service worker and the node configs; the shared data
+    shapes (worker replies, the saved tally) are in `src/types.ts`, the WASM exports in
+    `src/fast_engine.d.ts`. The node gates import the `.ts` sources directly (node strips
+    the types), and `solver/page_slice.mjs` strips them from the slices of `src/main.ts`
+    that some gates run in a vm. `fast_engine.c` is compiled to
     WASM (`src/fast_engine.js`, single-file ESM, wasm embedded) and runs IN THE
-    BROWSER inside a Web Worker. `src/fastnw.js` is the JS marshalling layer (port
-    of `fastnw.py`); `src/engine.worker.js` is the game/orchestration layer — it
+    BROWSER inside a Web Worker. `src/fastnw.ts` is the JS marshalling layer (port
+    of `fastnw.py`); `src/engine.worker.ts` is the game/orchestration layer — it
     holds game state and speaks the `/api/game/*` contract via postMessage, so the page needs no server to play. Search runs
     in the worker so the UI never blocks (adaptive budget: floor ~2000 sims, ceiling
     ~150k, visit-margin early stop — see memory `adaptive-sims`).
@@ -44,7 +49,7 @@
     (fixed 2026-07-17; regression-checked by driving the worker over 40 seeds and
     asserting no state has `counts.red===0 && !over` — ~3/40 games end by wipe, and the
     check catches 2 violations if the rule is removed).
-    `src/board.js` is the board renderer + battle/bot-turn animation
+    `src/board.ts` is the board renderer + battle/bot-turn animation
     (octagon nodes, coin-flip replay, reinforce flashes) — the one place the game's
     look lives; the page imports it and never draws its own board.
     One page, pure-static (the free-play page was removed 2026-08-14 and lives
@@ -59,7 +64,7 @@
         the AI worker failed a cold offline start (Playwright WebKit, 2026-09-27).
         Gate: the offline test in `e2e/` (Chromium only: Playwright's WebKit fails
         offline navigations before the service worker sees them).
-      - `index.html` + `src/main.js` — **duplicate-format** head-to-head play vs the engine, continuous:
+      - `index.html` + `src/main.ts` — **duplicate-format** head-to-head play vs the engine, continuous:
         you play a seed blind (your worker issues ZERO searches) while the AI plays THE
         SAME seed **concurrently in a SECOND worker**; finish and the next seed is dealt,
         with a running W-L tally. The AI pump prioritizes the inspected or just-finished pair, then the
@@ -68,7 +73,7 @@
         seed it cannot play (`aiErr`) instead of throwing out of the pump — oldest-first
         plus an unhandled throw both meant the pair you were looking at never completed.
         **The two workers are load-bearing, not a nicety**:
-        `engine.worker.js` serves its inbox in order and aborts an in-flight search as
+        `engine.worker.ts` serves its inbox in order and aborts an in-flight search as
         soon as a request queues behind it, so a shared worker would let every tap you
         make truncate the AI's search and silently handicap it — corrupting the very
         comparison the page exists to make. The AI's progress shows as a **blurred +
@@ -78,7 +83,7 @@
         unpaired winrates (`sim-vs-real-deal-imbalance`, `hard-set-2026-07-02`). The
         tally panel is deliberately minimal — the two W-L score cards, the
         **skill-over-time graph and compact numeric comparison**, + the seed-list browser.
-        `src/skill.js` compares the latest 20 finished games with the previous
+        `src/skill.ts` compares the latest 20 finished games with the previous
         20 (grows from 10 vs 10); unrecoverable missing games are silently
         omitted, while pending games in either window defer the comparison. Only live decisions contribute, with equal weight per game.
         Comparison color is applied cautiously: changes under 0.5 win-chance points or
@@ -95,7 +100,7 @@
         Coverage comes from the **background scorer**:
         a pump that reviews every finished seed, NEWEST first, for as long as the
         page is open, so the graph fills itself in and no longer skews toward
-        auto-scored losses. The scorer itself is **`src/review.js`**
+        auto-scored losses. The scorer itself is **`src/review.ts`**
         (`createReviewer(makeEngine).grade(round, onPartial)` + the tier/dead-band
         constants and `reviewAggregates`; the page keeps only the model, the pump and
         rendering): all grading (pump + an open panel's review) runs on a **review
@@ -110,7 +115,7 @@
         play order (2026-09-01: 44-decision game 10.4s → 2.2s on a 10-core, results
         bit-identical; the partial review has null holes where a search is still
         out, and its consumers skip them). Dedicated workers because
-        engine.worker.js aborts an in-flight search when a request queues behind it
+        engine.worker.ts aborts an in-flight search when a request queues behind it
         — sharing yours or the AI's would silently truncate grading searches below
         their 16k floor. Gate: `node solver/review_gate.mjs [seed] [workers]` hosts
         the worker in real threads and asserts parallel ≡ serial. Per-seed detail: **one red-nodes-vs-turn graph with both players' lines**
@@ -133,7 +138,7 @@
         Review workers prioritize the open panel, then newer finished games, between
         complete searches. A newly finished game starts grading immediately even
         if the backlog pump is awaiting an older review. Workers keep
-        at most two warm replays each. The inspector uses `src/replay.js` to
+        at most two warm replays each. The inspector uses `src/replay.ts` to
         cache two complete trajectories from `/api/replay`, without retaining
         another worker game or rebuilding battle animations per selection.
         `solver/REVIEW_PERFORMANCE.md` documents the performance and accuracy study.
@@ -170,11 +175,11 @@
         with no reply after 120 visible seconds, failed AI seeds/reviews and failed saves go to
         `reportError` → the menu's **Errors** item (count only there, so harmless errors add
         no noise to the board) → a list with Copy/Clear, each entry tagged with the release
-        that raised it (`RELEASE` from game-version.js, the assets/<hash> dir; 'dev' locally).
+        that raised it (`RELEASE`, the release id in the page's meta tag; 'dev' locally).
         The panel's first line is the running version, checked against the live page ("newer
         … deployed, reload") — a resumed phone tab keeps old code and sw.js may serve the
         cached page. Persisted in `nwErrors` so they survive iOS reloading the tab. That log found
-        the phone-only "no AI results" bug (2026-09-28): `engine.worker.js` yields between
+        the phone-only "no AI results" bug (2026-09-28): `engine.worker.ts` yields between
         search chunks through a MessageChannel, and WebKit brokers every MessagePort via its
         networking process, which iOS suspends/kills when the app is backgrounded — ports
         then stop delivering with no error, so every searching worker (AI + review pool)
@@ -219,7 +224,7 @@
   `solver/validate_wasm.py` (WASM board-gen BIT-PARITY vs native over 1000 seeds +
   structural/battle invariants + determinism, via `solver/wasm_gate.mjs` in node).
   Third gate for the browser layer: `node solver/worker_gate.mjs [nseeds]` fakes a Web
-  Worker so `engine.worker.js` can be driven in node over the pages' own
+  Worker so `engine.worker.ts` can be driven in node over the pages' own
   `/api/game/*` request sequence (routes + the sweep-up loop, incl. its bail path).
 - Two things came from the real game: the deal (every faction totals 20, 4 fixed
   templates) and battle. BATTLE is now the **real decompiled mechanic** —

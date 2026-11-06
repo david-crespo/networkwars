@@ -1,8 +1,8 @@
 // Regression gate for progress comparisons, missing history and quota/backlog bugs.
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import vm from 'node:vm';
-import { skillHistory, skillComparison, skillTrend } from '../src/skill.js';
+import { pageSlice } from './page_slice.mjs';
+import { skillHistory, skillComparison, skillTrend } from '../src/skill.ts';
 const round = (gap, n = 1) => ({ seed: 11, you: { result: 'won', hist: [],
   moves: Array.from({ length: n }, () => ({ e: 1, l: 'label' })),
   review: { moves: Array.from({ length: n }, () => ({ gap, dead: false })) } },
@@ -47,10 +47,9 @@ assert.deepEqual(skillTrend(history, 10), skillTrend(history).slice(-10), 'zoom 
 assert.equal(compare([...missing, ...games(12, 5)]).state, 'better');
 assert.deepEqual(skillHistory([{ you: { result: null } }]), []);
 
-const html = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const ctx = vm.createContext({ console, M: { rounds: [], idx: -1 }, reviewing: new Set(),
   trimNoted: true, reviewErr: {}, scoreBusy: false });
-vm.runInContext(html.slice(html.indexOf('function trimOldest()'), html.indexOf('function load()')), ctx);
+vm.runInContext(await pageSlice('function trimOldest()', 'function load()'), ctx);
 const unscored = round(10); unscored.you.review = null;
 const finished = round(7);
 ctx.M.rounds = [unscored, finished];
@@ -87,7 +86,7 @@ ctx.runReview = async i => {
   if (i === 2) ctx.reviewErr[i] = 'failed';
   else ctx.M.rounds[i].you.review = { moves: [] };
 };
-vm.runInContext(html.slice(html.indexOf('async function scorePump()'), html.indexOf('// ============================ menu')), ctx);
+vm.runInContext(await pageSlice('async function scorePump()', '// ============================ menu'), ctx);
 await ctx.scorePump();
 assert.deepEqual(calls, [2, 1, 0], 'one failed game must not strand the backlog');
 console.log('PASS: trend direction/noise, equal game weighting, coverage, partials, zoom, quota preservation, failed-game queue continuation');

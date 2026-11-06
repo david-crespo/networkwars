@@ -1,9 +1,9 @@
 // Deterministic orchestration tests; actual search/replay parity is review_gate.mjs.
 import assert from 'node:assert/strict';
-import { createReviewer, REVIEW_SIMS } from '../src/review.js';
-import { createReplayInspector } from '../src/replay.js';
-import fs from 'node:fs';
+import { createReviewer, REVIEW_SIMS } from '../src/review.ts';
+import { createReplayInspector } from '../src/replay.ts';
 import vm from 'node:vm';
+import { pageSlice } from './page_slice.mjs';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const round = (seed, n) => ({ seed, you: { moves: Array.from({ length: n }, () => ({ e: 1 })) } });
 const searches = [];
@@ -142,7 +142,6 @@ console.log('PASS: winning-position blunders retained; same-band extremes exclud
 // ---- the page's background-AI pump (nextAiSeed + aiPump, run as shipped) ----
 // It plays the seed you are on first and survives a seed it cannot play; both
 // were regressions that left every visible pair reading "AI —".
-const page = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const played = [], lanes = [];
 const pumpCtx = vm.createContext({ console: { warn() {} }, note() {}, reportError() {}, errMsg: String,
   M: { rounds: [], idx: 0 }, aiBusy: false, aiErr: {},
@@ -154,8 +153,7 @@ const pumpCtx = vm.createContext({ console: { warn() {} }, note() {}, reportErro
     if (pumpCtx.M.rounds[i].bad) throw new Error('worker exploded');
     pumpCtx.M.rounds[i].ai.result = 'won';
   } });
-vm.runInContext(page.slice(page.indexOf('function nextAiSeed()'),
-                           page.indexOf('// Every worker reply is checked')), pumpCtx);
+vm.runInContext(await pageSlice('function nextAiSeed()', '// Every worker reply is checked'), pumpCtx);
 const dealt = (extra = {}) => ({ startNodes: [], you: { result: null }, ai: { result: null }, ...extra });
 pumpCtx.M.rounds = [dealt(), dealt(), dealt({ bad: 1 }), dealt()];
 pumpCtx.M.idx = 3;
@@ -215,8 +213,7 @@ const loopCtx = vm.createContext({
   paintBadge() {}, save() {}, renderStrip() {}, refreshSeedPanel() {},
   sleep: tick,
 });
-vm.runInContext(page.slice(page.indexOf('async function aiPlaySeed(i)'),
-  page.indexOf('// ============================ your play')), loopCtx);
+vm.runInContext(await pageSlice('async function aiPlaySeed(', '// ============================ your play'), loopCtx);
 await loopCtx.aiPlaySeed(0);
 assert.equal(loopCtx.M.rounds[0].ai.moves.length, 1);
 assert.equal(aiGames.size, 0);

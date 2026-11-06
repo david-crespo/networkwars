@@ -51,7 +51,7 @@ so the glow retains its proportions on different pixel densities.
 Compared actual rendered sprites beside cropped video nodes at the same radius.
 Flat body patches match the sampled colors; lower highlight and battle gradients
 are approximations between sampled points, not a claim of pixel-identical assets.
-The implementation lives in `public/board.js` (`NODE_PALETTE` and `_skin`).
+The implementation lives in `public/board.ts` (`NODE_PALETTE` and `_skin`).
 
 Preserve the user's subsequent corrections: **normal-width numerals, no scaling
 animations, and arrows traveling along the attack line**. Only brightness pulses.

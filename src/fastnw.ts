@@ -8,23 +8,34 @@
 // owner encoding: red=0, green=1, yellow=2, blue=3, purple=4 (= FACTIONS index).
 // Two RNG streams in C: useMb32(seed) = the real seeded mulberry32 game stream;
 // useSim(seed) = the private seed-free splitmix64 stream for search rollouts.
-import Module from './fast_engine.js';
-import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.js';
-export { RULES_VERSION } from './game-version.js';
+import Module, { type EngineModule } from './fast_engine.js';
+import type { Faction, Move, MoveRef } from './types.ts';
+import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.ts';
+export { RULES_VERSION } from './game-version.ts';
 
-export const FACTIONS = ['red', 'green', 'yellow', 'blue', 'purple'];
-export const FIDX = Object.fromEntries(FACTIONS.map((f, i) => [f, i]));
+export const FACTIONS: readonly Faction[] = ['red', 'green', 'yellow', 'blue', 'purple'];
+export const FIDX = Object.fromEntries(FACTIONS.map((f, i) => [f, i])) as Record<Faction, number>;
 export const MAXN = 64;
 
-// Resolve `./fast_engine.js` against THIS module's URL so the worker (served from
-// /public) and node (filesystem) both find it without a hard-coded path.
-export async function loadEngine() {
-  const M = await Module();
+// The benches pass another build to compare against this one.
+export async function loadEngine(factory = Module) {
+  const M = await factory();
   return new Engine(M);
 }
 
-class Engine {
-  constructor(M) {
+type Ptr = number;
+export type Adj = number[][];
+export type Link = [number, number];
+
+/** Root children of a search: action (-1 = end turn, else from << 8 | to), visits, Q. */
+export interface RootStats { acts: Int32Array; visits: Int32Array; q: Float64Array }
+
+export class Engine {
+  M: EngineModule;
+  _owner: Ptr; _strength: Ptr; _x: Ptr; _y: Ptr; _adjOff: Ptr; _adjList: Ptr; _links: Ptr;
+  _flips: Ptr; _len: Ptr; _meta: Ptr; _acts: Ptr; _visits: Ptr; _q: Ptr;
+
+  constructor(M: EngineModule) {
     this.M = M;
     // persistent scratch buffers in the wasm heap (mirror fastnw.py's module bufs)
     this._owner = M._malloc(MAXN * 4);
@@ -43,20 +54,20 @@ class Engine {
   }
 
   // ---- heap <-> Int32Array helpers ----
-  _put(ptr, arr) {
+  _put(ptr: Ptr, arr: ArrayLike<number>) {
     this.M.HEAP32.set(arr, ptr >> 2);
   }
-  _get(ptr, n) {
+  _get(ptr: Ptr, n: number) {
     return this.M.HEAP32.slice(ptr >> 2, (ptr >> 2) + n);
   }
-  _getBack(ptr, arr) {
+  _getBack(ptr: Ptr, arr: Int32Array) {
     arr.set(this.M.HEAP32.subarray(ptr >> 2, (ptr >> 2) + arr.length));
   }
 
   // ---- topology ----
-  setTopologyCsr(n, adj) {
+  setTopologyCsr(n: number, adj: Adj) {
     const off = new Int32Array(n + 1);
-    const flat = [];
+    const flat: number[] = [];
     for (let i = 0; i < n; i++) { off[i] = flat.length; for (const j of adj[i]) flat.push(j); }
     off[n] = flat.length;
     this._put(this._adjOff, off);
@@ -65,25 +76,25 @@ class Engine {
     return n;
   }
 
-  getAdj(n) {
+  getAdj(n: number): Adj {
     this.M._get_adj(this._adjOff, this._adjList);
     const off = this._get(this._adjOff, n + 1);
     const lst = this._get(this._adjList, off[n]);
-    const adj = [];
+    const adj: Adj = [];
     for (let i = 0; i < n; i++) adj.push(Array.from(lst.subarray(off[i], off[i + 1])));
     return adj;
   }
 
-  getLinks() {
+  getLinks(): Link[] {
     const L = this.M._get_links(this._links);
     const raw = this._get(this._links, 2 * L);
-    const links = [];
+    const links: Link[] = [];
     for (let k = 0; k < L; k++) links.push([raw[2 * k], raw[2 * k + 1]]);
     return links;
   }
 
   // ---- board generation ----
-  newGame(seed, rules = RULES_VERSION) {
+  newGame(seed: number, rules = RULES_VERSION) {
     if (rules !== LEGACY_RULES_VERSION && rules !== RULES_VERSION) throw new Error('unsupported rules version');
     const generate = rules === LEGACY_RULES_VERSION ? this.M._new_game_legacy : this.M._new_game;
     const n = generate(seed >>> 0, this._owner, this._strength, this._x, this._y);
@@ -100,20 +111,20 @@ class Engine {
   }
 
   // ---- rng ----
-  useMb32(seed) { this.M._set_rng_mb32(seed >>> 0); this.M._use_mb32_rng(); }
-  useSim(seed) { this.M._set_sim_seed(BigInt(seed)); this.M._use_sim_rng(); }
+  useMb32(seed: number) { this.M._set_rng_mb32(seed >>> 0); this.M._use_mb32_rng(); }
+  useSim(seed: number) { this.M._set_sim_seed(BigInt(seed)); this.M._use_sim_rng(); }
   getMb32() { return this.M._get_rng_mb32() >>> 0; }
-  setMb32(v) { this.M._set_rng_mb32(v >>> 0); }
+  setMb32(v: number) { this.M._set_rng_mb32(v >>> 0); }
 
   // ---- pure-JS reads (no rules; mirror fastnw.py) ----
-  counts(owner) {
+  counts(owner: Int32Array) {
     const c = [0, 0, 0, 0, 0];
     for (const v of owner) c[v]++;
     return c;
   }
 
-  legalMoves(owner, strength, adj) {
-    const moves = [];
+  legalMoves(owner: Int32Array, strength: Int32Array, adj: Adj) {
+    const moves: Link[] = [];
     for (let i = 0; i < owner.length; i++) {
       if (owner[i] !== 0 || strength[i] <= 1) continue;
       for (const j of adj[i]) if (owner[j] !== 0) moves.push([i, j]);
@@ -122,7 +133,7 @@ class Engine {
   }
 
   // ---- primitives (mutate owner/strength in place, like the Python client) ----
-  checkWinner(owner) {
+  checkWinner(owner: Int32Array) {
     this._put(this._owner, owner);
     return this.M._ext_check_winner(this._owner);
   }
@@ -131,7 +142,7 @@ class Engine {
   // + sorts the faction's islands strongest-first, next() yields one attack at a
   // time — after a capture the bot continues with the stack it just moved. Call
   // next() only with the previous attack already resolved.
-  botTurnBegin(owner, strength, faction) {
+  botTurnBegin(owner: Int32Array, strength: Int32Array, faction: number): Ptr {
     this._put(this._owner, owner);
     this._put(this._strength, strength);
     const st = this.M._malloc((MAXN + 3) * 4);
@@ -141,7 +152,7 @@ class Engine {
 
   // next attack as [frm, to], or null when the faction's attacks are done (then
   // free the cursor with botTurnEnd).
-  botTurnNext(owner, strength, faction, st) {
+  botTurnNext(owner: Int32Array, strength: Int32Array, faction: number, st: Ptr): Link | null {
     this._put(this._owner, owner);
     this._put(this._strength, strength);
     let r = this.M._bot_turn_next(this._owner, this._strength, faction, st);
@@ -150,9 +161,9 @@ class Engine {
     return [r >> 8, r & 0xFF];
   }
 
-  botTurnEnd(st) { this.M._free(st); }
+  botTurnEnd(st: Ptr) { this.M._free(st); }
 
-  attackLogged(owner, strength, frm, to) {
+  attackLogged(owner: Int32Array, strength: Int32Array, frm: number, to: number) {
     if (!this.isLegalAttack(owner, strength, frm, to)) throw new Error('illegal attack');
     this._put(this._owner, owner);
     this._put(this._strength, strength);
@@ -162,7 +173,7 @@ class Engine {
     this._getBack(this._strength, strength);
     const nflips = this.M.HEAP32[this._len >> 2];
     const fbuf = this._get(this._flips, nflips);
-    const flips = Array.from(fbuf, (v) => (v ? 'd' : 'a'));
+    const flips = Array.from(fbuf, (v) => (v ? 'd' : 'a') as 'a' | 'd');
     const m = this._get(this._meta, 5);
     const meta = {
       captured: !!m[0], fromStart: m[1], toStart: m[2],
@@ -171,7 +182,7 @@ class Engine {
     return { flips, meta };
   }
 
-  reinforce(owner, strength, faction) {
+  reinforce(owner: Int32Array, strength: Int32Array, faction: number) {
     this._put(this._owner, owner);
     this._put(this._strength, strength);
     this.M._ext_reinforce(this._owner, this._strength, faction);
@@ -180,7 +191,7 @@ class Engine {
   }
 
   // Replay without animation logs: the same C primitives and real game dice.
-  replayMove(owner, strength, move) {
+  replayMove(owner: Int32Array, strength: Int32Array, move: Move) {
     if (!move.e && (!Array.isArray(move.a) || owner[move.a[0]] !== 0 ||
         !this.isLegalAttack(owner, strength, move.a[0], move.a[1])))
       throw new Error('illegal replay attack');
@@ -192,7 +203,7 @@ class Engine {
     this._getBack(this._strength, strength);
   }
 
-  isLegalAttack(owner, strength, frm, to) {
+  isLegalAttack(owner: Int32Array, strength: Int32Array, frm: number, to: number) {
     if (!Number.isInteger(frm) || !Number.isInteger(to) ||
         frm < 0 || to < 0 || frm >= owner.length || to >= owner.length) return false;
     this._put(this._owner, owner);
@@ -203,7 +214,7 @@ class Engine {
   // ---- sweep-up (mop-up policy + its certificate; see fast_engine.c) ----
   // The rule the sweep plays, straight from C — the pages must not keep their own
   // copy, or the policy that gets certified stops being the policy that plays.
-  sweepMove(owner, strength) {
+  sweepMove(owner: Int32Array, strength: Int32Array): MoveRef | null {
     this._put(this._owner, owner);
     this._put(this._strength, strength);
     const mv = this.M._sweep_best_move(this._owner, this._strength);
@@ -213,7 +224,7 @@ class Engine {
   // Plays that policy to the end `trials` times on the private sim stream (the real
   // dice are untouched) and returns how many were LOST, giving up once that passes
   // maxLosses. Pass test: <= maxLosses. Costs about one search rollout per trial.
-  sweepCertify(owner, strength, turns, trials, maxLosses = 0) {
+  sweepCertify(owner: Int32Array, strength: Int32Array, turns: number, trials: number, maxLosses = 0) {
     this._put(this._owner, owner);
     this._put(this._strength, strength);
     return this.M._sweep_certify(this._owner, this._strength, turns, trials, maxLosses);
@@ -225,8 +236,8 @@ class Engine {
   // `sims` is the floor; `maxSims` (default == sims => fixed budget) the ceiling.
   // maxSims > sims runs adaptively: keeps searching while the top two root moves
   // stay close, stops once the leader is uncatchable (move-identical to full).
-  uctSearch(owner, strength, turns, sims, cPuct = 2.5, nroll = 1, maxSims = null) {
-    if (maxSims == null) maxSims = sims;
+  uctSearch(owner: Int32Array, strength: Int32Array, turns: number, sims: number, cPuct = 2.5, nroll = 1,
+            maxSims = sims): RootStats {
     this._put(this._owner, owner);
     this._put(this._strength, strength);
     this.M._use_sim_rng();
@@ -242,8 +253,8 @@ class Engine {
   // ---- streaming search (persistent tree): begin once, then step/report in a
   // loop to visualize the root stats converging. Runs to the SAME terminal state
   // as uctSearch (bit-identical), just observed in chunks. Seed sim with useSim().
-  uctBegin(owner, strength, turns, sims, cPuct = 2.5, nroll = 1, maxSims = null) {
-    if (maxSims == null) maxSims = sims;
+  uctBegin(owner: Int32Array, strength: Int32Array, turns: number, sims: number, cPuct = 2.5, nroll = 1,
+           maxSims = sims) {
     this._put(this._owner, owner);
     this._put(this._strength, strength);
     this.M._use_sim_rng();
@@ -254,17 +265,17 @@ class Engine {
   // Optional value-based early stop (off until set): settle once the leading move
   // has >= minVis visits AND its win-prob is decisive (<=lo or >=hi) or beats the
   // runner-up by >=gap. Verified offline: ~3x fewer sims/move, no winrate change.
-  setValueStop(lo, hi, gap, minVis) { this.M._uct_set_value_stop(lo, hi, gap, minVis | 0); }
+  setValueStop(lo: number, hi: number, gap: number, minVis: number) { this.M._uct_set_value_stop(lo, hi, gap, minVis | 0); }
   // Grading mode: accurate comparison ACROSS root moves (root min-visit floor, no
   // dominance early-stops, second-half Q readout) instead of fastest best-move pick.
   // 0 = off (default, bit-identical search), 1 = on. STICKY — callers must reset.
-  setGrade(mode) { this.M._uct_set_grade(mode | 0); }
+  setGrade(mode: number) { this.M._uct_set_grade(mode | 0); }
 
   // run up to `budget` more sims; returns true when the search is finished.
-  uctStep(budget) { return this.M._uct_step(budget | 0) !== 0; }
+  uctStep(budget: number) { return this.M._uct_step(budget | 0) !== 0; }
   uctSimsDone() { return this.M._uct_sims_done(); }
   // read current root children (acts/visits/q) without disturbing the tree.
-  uctReport() {
+  uctReport(): RootStats {
     const nc = this.M._uct_report(this._acts, this._visits, this._q);
     const acts = this._get(this._acts, nc);
     const visits = this._get(this._visits, nc);

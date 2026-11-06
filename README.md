@@ -1,10 +1,11 @@
 # Network Wars
 
-The page is built with Vite (`npm run dev`, `npm run build` into `dist/`) and
+The page is TypeScript built with Vite (`npm run dev`, `npm run build` into `dist/`,
+`npm run typecheck`) and
 Cloudflare serves `dist/` as an assets-only Worker (`wrangler.jsonc`; `npm run
 deploy`, or connect the repo in the Cloudflare dashboard). It uses the committed
 `src/fast_engine.js`: after changing the C engine, run `solver/build_wasm.sh` and
-commit the result. A service worker (`src/sw.js`) makes the page work offline after
+commit the result. A service worker (`src/sw.ts`) makes the page work offline after
 one visit while still loading each new deploy (the page is network-first, the
 content-hashed assets cache-first). `npm run test:e2e` runs the Playwright tests.
 
@@ -19,7 +20,7 @@ bots, battle, reinforcement, win check, **and the search-based AI** — is one C
 | Path | What it is |
 |------|------------|
 | `solver/fast_engine.c` | **The single source of truth.** All rules + board generation + the iOS-faithful deal + the four bots + the decompiled fair-coin battle + reinforcement + the open-loop **C-UCT MCTS** (no neural net). |
-| `index.html`, `src/` | The **serverless browser game.** `fast_engine.c` compiled to WASM (`src/fast_engine.js`) runs the whole engine + search in a Web Worker; `src/main.js` is the UI. No backend needed. |
+| `index.html`, `src/` | The **serverless browser game.** `fast_engine.c` compiled to WASM (`src/fast_engine.js`) runs the whole engine + search in a Web Worker; `src/main.ts` is the UI. No backend needed. |
 | `solver/fmcts.py`, `solver/par_eval.py` | Headless self-play / parallel winrate evals (thin ctypes clients over the C engine). |
 | `solver/hard_ab.py` | Paired A/B of engine configs over the hard set of openings lost in live play (`solver/HARD_SET.md`). |
 

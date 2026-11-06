@@ -2,7 +2,7 @@
 // Head-to-head: continuous DUPLICATE-format play against the C-UCT engine, with the
 // AI playing the same seed CONCURRENTLY in a second worker.
 //
-// Why two workers: engine.worker.js serves its inbox strictly in order and aborts an
+// Why two workers: engine.worker.ts serves its inbox strictly in order and aborts an
 // in-flight search the moment a request queues behind it. If the AI shared your
 // worker, every tap you made would truncate its search and silently handicap it —
 // which would corrupt the exact comparison this page exists to make. Its own worker =
@@ -22,48 +22,54 @@
 // bridge (same deal), not dice-for-dice identity — the latter isn't coherent once
 // actions differ.
 //
-// All rendering/animation comes from board.js; all rules and
-// search come from fast_engine.c via engine.worker.js. This file is bookkeeping and
+// All rendering/animation comes from board.ts; all rules and
+// search come from fast_engine.c via engine.worker.ts. This file is bookkeeping and
 // presentation only.
 // ============================================================================
-import { Board, ORDER, SPEEDS, sleep, dirArrow, drawThumb } from './board.js';
-import { createReviewer, tierOf, invalidateStaleReview } from './review.js';
-import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.js';
-import { aiWinCurve, youWinCurve } from './projections.js';
-import { createReplayInspector } from './replay.js';
-import { skillHistory, skillComparison, skillTrend } from './skill.js';
-import engineWorkerUrl from './engine.worker.js?worker&url';
+import { Board, ORDER, SPEEDS, sleep, dirArrow, drawThumb } from './board.ts';
+import { createReviewer, tierOf, invalidateStaleReview } from './review.ts';
+import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.ts';
+import { aiWinCurve, youWinCurve, type CurvePoint } from './projections.ts';
+import { createReplayInspector } from './replay.ts';
+import { skillHistory, skillComparison, skillTrend, type SkillGame } from './skill.ts';
+import engineWorkerUrl from './engine.worker.ts?worker&url';
+import type { Api, Faction, GameView, HistPoint, Label, Move, NodeView, Reply, Round, SearchResult,
+  Side, SweepCheck, Tally } from './types.ts';
 
 // The AI plays at the strength the app's autoplay/live driver uses: 6000-sim floor,
 // adaptive up to the worker's 150k ceiling with the visit/value-margin early stop.
 const AI_SIMS = 6000;
 const WIN_NODES = 24;                     // faction node count that ends the game
 
-const $ = (id) => document.getElementById(id);
+// Every id the page looks up is in index.html.
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 // The deployed release (vite.config.ts puts it in the page), or 'dev' under `vite`.
-const RELEASE = document.querySelector('meta[name=release]')?.content ?? 'dev';
+const RELEASE = document.querySelector<HTMLMetaElement>('meta[name=release]')?.content ?? 'dev';
 const board = new Board($('cv'), $('board'));
 board.onReplay = (faction, nodes) => renderHeader(faction, nodes);
 
-let state = null;            // authoritative view of YOUR game
+let state: GameView | null = null;   // authoritative view of YOUR game
 let inputLocked = false;
 // Read-only hook for the e2e tests (e2e/), which need node positions on the canvas.
-window.__nw = { board, state: () => state, locked: () => inputLocked, model: () => M };
+(window as any).__nw = { board, state: () => state, locked: () => inputLocked, model: () => M };
 
 // ---- diagnostics: never shown in the UI, only written into the data export, so a
 // device-specific failure (e.g. the AI stalling on a phone but not on a desktop)
 // can be read offline instead of guessed at. A bounded event ring + counters.
-const diag = { started: new Date().toISOString(), events: [], saveFails: 0, lastSaveError: null,
-  aiSearches: 0, aiSims: 0, aiSearchMs: 0, aiSearchMaxMs: 0 };
-function note(ev, detail) {
+interface ReportedError { src: string; msg: string; n: number; at: string; v: string; trail: string[]; prev?: 1 }
+const diag = { started: new Date().toISOString(),
+  events: [] as ({ t: number; ev: string } & Record<string, unknown>)[],
+  saveFails: 0, lastSaveError: null as string | null,
+  aiSearches: 0, aiSims: 0, aiSearchMs: 0, aiSearchMaxMs: 0, errors: [] as ReportedError[] };
+function note(ev: string, detail?: object) {
   diag.events.push({ t: Math.round(performance.now()) / 1000, ev, ...detail });
   if (diag.events.length > 400) diag.events.splice(0, 100);
 }
 document.addEventListener('visibilitychange', () => note(document.visibilityState));
 // What the player last touched, for the trail on each error (see reportError).
 document.addEventListener('pointerup', (e) => {
-  const el = e.target.closest?.('[id]');
-  note('tap', { on: el?.id || e.target.tagName?.toLowerCase() });
+  const target = e.target as Element;
+  note('tap', { on: target.closest?.('[id]')?.id || target.tagName?.toLowerCase() });
 }, true);
 
 // ---- errors, surfaced on screen: a phone has no console, so every failure the
@@ -75,23 +81,23 @@ document.addEventListener('pointerup', (e) => {
 // count up instead of stacking. Each keeps a `trail`: the diagnostics events
 // (taps, AI and visibility changes) just before it, timed from page load.
 const ERR_KEY = 'nwErrors', ERR_MAX = 60;
-try { diag.errors = (JSON.parse(localStorage.getItem(ERR_KEY)) || []).map(e => ({ ...e, prev: 1 })); }
+try { diag.errors = (JSON.parse(localStorage.getItem(ERR_KEY) || '[]') as ReportedError[]).map(e => ({ ...e, prev: 1 })); }
 catch (_) { diag.errors = []; }
-function reportError(src, msg) {
-  msg = String(msg).slice(0, 600);
+function reportError(src: string, msg: unknown) {
+  const text = String(msg).slice(0, 600);
   const at = new Date().toISOString();
-  const same = diag.errors.find(e => !e.prev && e.src === src && e.msg === msg);
+  const same = diag.errors.find(e => !e.prev && e.src === src && e.msg === text);
   const trail = diag.events.slice(-8).map(({ t, ev, ...d }) =>
     `${t.toFixed(1)}s ${ev} ${Object.entries(d).map(([k, v]) => `${k}=${v}`).join(' ')}`.trim());
   if (same) { same.n++; same.at = at; same.trail = trail; }
-  else diag.errors.push({ src, msg, n: 1, at, v: RELEASE, trail });
+  else diag.errors.push({ src, msg: text, n: 1, at, v: RELEASE, trail });
   if (diag.errors.length > ERR_MAX) diag.errors.splice(0, diag.errors.length - ERR_MAX);
-  note('error', { src, msg });
+  note('error', { src, msg: text });
   try { localStorage.setItem(ERR_KEY, JSON.stringify(diag.errors)); } catch (_) {}
   renderErrors();
 }
 // Safari's stack omits the message line that V8's starts with; keep both once.
-const errMsg = (e) => {
+const errMsg = (e: unknown) => {
   if (!(e instanceof Error)) return String(e);
   const st = e.stack || '';
   return st.includes(e.message) ? st : `${e.message}\n${st}`;
@@ -110,19 +116,27 @@ window.addEventListener('unhandledrejection', (e) => reportError('page', errMsg(
 if (import.meta.env.PROD)
   navigator.serviceWorker?.register('sw.js').catch((e) => note('sw', { msg: String(e) }));
 
-// ---- independent engines: yours, the AI's, and (lazily, in review.js) the review pool's ----
-const engines = [];            // every worker's in-flight requests, for the export
-function makeEngine(name = 'review') {
+// ---- independent engines: yours, the AI's, and (lazily, in review.ts) the review pool's ----
+interface Pending { resolve: (r: any) => void; path: string; t: number; vis: number; stalled?: boolean }
+interface EngineEntry {
+  name: string
+  pending: Map<number, Pending>
+  beat: { sims: number; at: number } | null
+  ping: () => Promise<object | null>
+}
+const engines: EngineEntry[] = [];   // every worker's in-flight requests, for the export
+function makeEngine(name = 'review'): Api {
   // One URL per worker: WebKit shares a script load between workers started together,
   // and the second one is then not controlled by sw.js, so its imports fail offline.
   const url = new URL(engineWorkerUrl, location.href);
   url.searchParams.set('n', String(engines.length));
   const w = new Worker(url, { type: 'module' });
-  const pending = new Map();   // id -> { resolve, path, t }
-  let id = 0, pongs = [];
+  const pending = new Map<number, Pending>();
+  let id = 0;
+  const pongs: ((probe: object | null) => void)[] = [];
   // beat: the worker's last finished search chunk; ping: its probe(), answered
   // outside its request queue (null if it doesn't answer) — both for stall reports.
-  const entry = { name, pending, beat: null,
+  const entry: EngineEntry = { name, pending, beat: null,
     ping: () => new Promise((resolve) => {
       pongs.push(resolve); w.postMessage({ ping: 1 });
       setTimeout(() => resolve(null), 5000);
@@ -167,8 +181,8 @@ setInterval(() => {
     }
   }
 }, 5000);
-async function reportStall(e, p) {
-  const now = performance.now(), age = (t) => ((now - t) / 1000).toFixed(1) + 's';
+async function reportStall(e: EngineEntry, p: Pending) {
+  const now = performance.now(), age = (t: number) => ((now - t) / 1000).toFixed(1) + 's';
   const beat = e.beat && e.beat.at > p.t ? e.beat : null;
   const head = `no reply to ${p.path} after ${STALL_S}s visible (${age(p.t)} total)`
     + (beat ? ` · last chunk ${age(beat.at)} ago at ${beat.sims} sims` : ' · no search chunk finished');
@@ -179,7 +193,7 @@ async function reportStall(e, p) {
 const api = makeEngine('you');   // your game — never issues a search while you play
 const aiApi = makeEngine('ai');  // the AI's background game
 const inspectMove = createReplayInspector(api);
-// Decision scoring (review.js): its own worker pool, created on the first review.
+// Decision scoring (review.ts): its own worker pool, created on the first review.
 const reviewer = createReviewer(makeEngine);
 
 // ============================ model ============================
@@ -190,10 +204,10 @@ const reviewer = createReviewer(makeEngine);
 // thinkStart); swept moves carry `sw: 1` and no `ms`. `at` is when the seed was dealt.
 // `hist` is red power sampled per turn: {t: turn, n: nodes, s: total strength}.
 const KEY = 'nwH2H';
-let M = null;   // { rounds: [...], idx }
+let M!: Tally;
 
-const blankSide = () => ({ result: null, turns: 0, red: 0, moves: [], hist: [], review: null });
-const blankRound = (seed) => ({ seed, rules: RULES_VERSION, at: Date.now(), startNodes: null,
+const blankSide = (): Side => ({ result: null, turns: 0, red: 0, moves: [], hist: [], review: null });
+const blankRound = (seed: number): Round => ({ seed, rules: RULES_VERSION, at: Date.now(), startNodes: null,
   you: blankSide(), ai: blankSide() });
 // new_game() seeds mulberry32 with this; keep it in 1..2^31-1 like the app does.
 const randSeed = () => Math.floor(Math.random() * 0x7ffffffe) + 1;
@@ -230,7 +244,7 @@ function save() {
 // Oldest untrimmed pair that is fully finished, not the seed in play, and not being
 // scored right now (its reviewer still walks r.you.moves). false when nothing's left.
 function trimOldest() {
-  const eligible = (r, k) => !r.trim && r.you.result && r.ai.result
+  const eligible = (r: Round, k: number) => !r.trim && r.you.result && r.ai.result
     && k !== M.idx && !reviewing.has(k);
   let i = M.rounds.findIndex((r, k) => eligible(r, k) && r.you.review && !r.you.review.partial);
   // Unanalyzed games must retain their actions: deleting them strands the
@@ -244,7 +258,7 @@ function trimOldest() {
     r.startNodes = null;
     for (const side of [r.you, r.ai]) {
       side.hist = [];
-      side.moves = side.moves.map(({ l, q, ...keep }) => keep);   // actions + timing
+      side.moves = side.moves.map(({ l, q, ...keep }) => keep as Move);   // actions + timing
     }
   }
   if (!trimNoted) {
@@ -254,7 +268,7 @@ function trimOldest() {
   }
   return true;
 }
-function trimRound(r) {
+function trimRound(r: Round) {
   const rv = r.you.review, played = r.you.moves;
   r.trim = 1;
   r.startNodes = null;
@@ -267,7 +281,7 @@ function trimRound(r) {
           ...(played[k]?.ms != null && { ms: played[k].ms }) }) }
     : null;
 }
-function load() {
+function load(): Tally | null {
   try {
     const m = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (m && Array.isArray(m.rounds) && m.rounds.length) {
@@ -279,20 +293,20 @@ function load() {
 }
 const cur = () => M.rounds[M.idx];
 
-const redStrength = (s) => s.nodes.reduce((a, n) => a + (n.owner === 'red' ? n.strength : 0), 0);
+const redStrength = (s: GameView) => s.nodes.reduce((a, n) => a + (n.owner === 'red' ? n.strength : 0), 0);
 
 // Snapshot the two nodes an attack was played into, at the moment it was played. Kept
 // on the move itself so BOTH move lists render as colored pips + a direction arrow
 // without needing a replay (or a review) first. x/y are what dirArrow needs.
-const mkLabel = (s, from, to) => ({
+const mkLabel = (s: GameView, from: number, to: number): Label => ({
   f: { owner: s.nodes[from].owner, strength: s.nodes[from].strength, x: s.nodes[from].x, y: s.nodes[from].y },
   t: { owner: s.nodes[to].owner, strength: s.nodes[to].strength, x: s.nodes[to].x, y: s.nodes[to].y },
 });
 
 // Red power, one point per turn. Re-sampling the same turn overwrites it, so each
 // point is the state after that turn's RED actions — consistent for both sides.
-function sampleHist(side, s) {
-  const pt = { t: s.turn, n: s.counts.red, s: redStrength(s) };
+function sampleHist(side: Side, s: GameView) {
+  const pt: HistPoint = { t: s.turn, n: s.counts.red, s: redStrength(s) };
   const last = side.hist[side.hist.length - 1];
   if (last && last.t === s.turn) side.hist[side.hist.length - 1] = pt;
   else side.hist.push(pt);
@@ -300,7 +314,7 @@ function sampleHist(side, s) {
 
 // Stamp a finished game's outcome. Per the project's gameplay policy there is no
 // surrender — every seed reaches a natural terminal.
-function recordEnd(side, s) {
+function recordEnd(side: Side, s: GameView) {
   if (!s.over) return false;
   side.result = s.youWon ? 'won' : 'lost';
   side.turns = s.turn;
@@ -310,11 +324,11 @@ function recordEnd(side, s) {
 }
 
 // ============================ chrome ============================
-function renderHeader(active = 'red', nodes = null) {
+function renderHeader(active: Faction = 'red', nodes: NodeView[] | null = null) {
   const h = $('chips');
   h.innerHTML = '';
   if (!state) return;
-  const counts = nodes ? Object.fromEntries(ORDER.map(f => [f, 0])) : state.counts;
+  const counts = nodes ? Object.fromEntries(ORDER.map(f => [f, 0])) as Record<Faction, number> : state.counts;
   if (nodes) for (const n of nodes) counts[n.owner]++;
   for (const f of ORDER) {
     const c = counts[f];
@@ -364,18 +378,18 @@ if (window.ResizeObserver) new ResizeObserver(resize).observe($('board'));
 // A pump that keeps the AI busy: it plays any dealt seed it hasn't finished,
 // forever. It never touches your worker, your game state or your dice.
 let aiBusy = false;
-const aiErr = {};              // seeds the AI could not play this session (transient)
+const aiErr: Record<number, string> = {};   // seeds the AI could not play this session (transient)
 
-function paintBadge(nodes, idle) {
-  $('aibadge').classList.toggle('idle', !!idle);
-  if (nodes) drawThumb($('aicv'), nodes);
+function paintBadge(nodes: NodeView[] | null, idle: boolean) {
+  $('aibadge').classList.toggle('idle', idle);
+  if (nodes) drawThumb($<HTMLCanvasElement>('aicv'), nodes);
 }
 
 // The inspected/just-finished pair, then the newest dealt seed and its backlog.
 // Selection happens between complete moves, so history cannot hold up the pair
 // the player is waiting for and no search is truncated to change priorities.
 function nextAiSeed() {
-  const pending = k => {
+  const pending = (k: number) => {
     const r = M.rounds[k];
     return r?.startNodes && !r.ai.result && !aiErr[k];
   };
@@ -403,7 +417,7 @@ async function aiPump() {
       // seed again, so the AI never finished another game all session.
       try { await aiPlaySeed(i); }
       catch (e) {
-        aiErr[i] = String(e && e.message || e); console.warn(`AI seed ${i + 1}:`, e);
+        aiErr[i] = e instanceof Error ? e.message : String(e); console.warn(`AI seed ${i + 1}:`, e);
         reportError('ai', `seed ${i + 1}: ${errMsg(e)}`);
       }
     }
@@ -417,13 +431,13 @@ async function aiPump() {
 
 // Every worker reply is checked: an `{error}` view has no counts/nodes, so letting
 // one through only turns a clear failure into a TypeError deeper in the pump.
-async function aiStep(path, method, body) {
-  const s = await aiApi(path, method, body);
+async function aiStep<T extends Reply = GameView>(path: string, method?: string, body?: object): Promise<T> {
+  const s = await aiApi<T>(path, method, body);
   if (s.error) throw new Error(s.error);
   return s;
 }
 
-async function aiPlaySeed(i) {
+async function aiPlaySeed(i: number) {
   const r = M.rounds[i];
   const g = r.ai;
   note('ai-seed', { i, resumeAt: g.moves.length });
@@ -440,13 +454,13 @@ async function aiPlaySeed(i) {
   paintBadge(s.nodes, false);
   for (let guard = 0; guard < 4000 && !s.over; guard++) {
     const t0 = performance.now();
-    const res = await aiStep(`/api/game/${s.id}/search`, 'POST', { sims: AI_SIMS });
+    const res = await aiStep<SearchResult>(`/api/game/${s.id}/search`, 'POST', { sims: AI_SIMS });
     const ms = performance.now() - t0;
     diag.aiSearches++; diag.aiSims += res.sims || 0; diag.aiSearchMs += ms;
     diag.aiSearchMaxMs = Math.max(diag.aiSearchMaxMs, ms);
     const b = res.best;
     const q = res.winexp == null ? null : Math.round(res.winexp * 1e4) / 1e4;   // 4 dp: storage
-    if (!b || b.action === -1) {
+    if (!b || b.from == null || b.to == null) {
       g.moves.push({ e: 1, q });
       s = await aiStep(`/api/game/${s.id}/end-turn`, 'POST');
     } else {
@@ -485,7 +499,7 @@ async function aiPlaySeed(i) {
 // bot turns animated) to the tap that commits the move, and only while you can see
 // the board: animations, a hidden tab and a full-screen panel (the analysis that
 // opens after a loss, results, errors) don't count.
-const think = { on: false, acc: 0, since: null };
+const think = { on: false, acc: 0, since: null as number | null };
 function thinkSync() {
   const now = performance.now();
   if (think.since != null) { think.acc += now - think.since; think.since = null; }
@@ -497,7 +511,7 @@ document.addEventListener('visibilitychange', thinkSync);
 for (const ov of document.querySelectorAll('.ov'))
   new MutationObserver(thinkSync).observe(ov, { attributes: true, attributeFilter: ['class'] });
 // Stamp a move as it is committed: wall-clock time + think time, or `sw` if swept.
-function timed(mv) {
+function timed(mv: Move): Move {
   thinkSync();
   mv.t = Date.now();
   if (sweeping) mv.sw = 1;
@@ -518,7 +532,7 @@ async function startSeed() {
   aiPump();                                    // the AI starts this seed too, right now
 }
 
-function adopt(s) {
+function adopt(s: GameView) {
   state = s;
   board.setView(s);
   renderHeader();
@@ -526,13 +540,14 @@ function adopt(s) {
 }
 
 // Disable End Turn until the attack or whole-turn animation finishes.
-async function replayAnimation(run) {
+async function replayAnimation(run: () => Promise<void>) {
   $('endturn').classList.add('off');
   try { await run(); }
   finally { $('endturn').classList.remove('off'); }
 }
 
-async function yourAttack(from, to) {
+async function yourAttack(from: number, to: number) {
+  if (!state) return;
   inputLocked = true; board.abort = false; cancelSweepOffer();
   board.selected = null; board.battle = { from, to }; board.draw();
   cur().you.moves.push(timed({ a: [from, to], l: mkLabel(state, from, to) }));
@@ -552,7 +567,8 @@ async function yourEndTurn() {
   board.selected = null; board.draw();
   cur().you.moves.push(timed({ e: 1 }));
   const res = await api(`/api/game/${state.id}/end-turn`, 'POST');
-  if (res.events && res.events.length && !board.instant) await replayAnimation(() => board.animateEndTurn(res));
+  const { events } = res;
+  if (events?.length && !board.instant) await replayAnimation(() => board.animateEndTurn({ events }));
   inputLocked = false;
   adopt(res); sampleHist(cur().you, res); save();
   if (recordEnd(cur().you, res)) { await afterYourGame(); return; }
@@ -581,15 +597,17 @@ async function afterYourGame() {
 // Input: tap-select-then-tap-target, OR press on a red node and DRAG onto a
 // highlighted neighbor (release = attack). A drag that ends on nothing / the
 // origin just leaves the node selected, so the tap flow keeps working.
-let drag = null;                                   // {from, pid} while a pointer is held on a red node
-const cvPt = (ev) => { const b = $('cv').getBoundingClientRect(); return { x: ev.clientX - b.left, y: ev.clientY - b.top }; };
+type Point = { x: number; y: number }
+// While a pointer is held on a red node.
+let drag: { from: number; pid: number; retap?: boolean; at: Point } | null = null;
+const cvPt = (ev: PointerEvent): Point => { const b = $('cv').getBoundingClientRect(); return { x: ev.clientX - b.left, y: ev.clientY - b.top }; };
 function endDrag() {
   drag = null; board.dragTo = null; board.hoverMove = null;
 }
 // Generous press: an exact hit wins; a press that misses every node snaps to the
 // nearest node it could act on (a red node with attacks, the selected node, or one
 // of its targets) within the same slop as a drag release.
-function pressNode(p) {
+function pressNode(p: Point) {
   const hit = board.hitNode(p.x, p.y);
   if (hit) return hit;
   const ids = new Set(board.targetsFor.keys());
@@ -623,28 +641,28 @@ $('cv').addEventListener('pointerdown', (ev) => {
 // Where a drag from `from` currently points: an exact hit on the origin or a target,
 // else the nearest of them within the slop. The origin competes with its targets, so
 // an off-center press that snapped onto it doesn't attack a neighbor on release.
-function dragNode(p, from) {
+function dragNode(p: Point, from: number) {
   const hit = board.hitNode(p.x, p.y), targets = board.targetsFor.get(from);
   if (hit && (hit.id === from || targets?.has(hit.id))) return hit;
   return board.nearestOf(p.x, p.y, new Set([from, ...(targets ?? [])]));
 }
 // a press that barely moves is a tap, never an attack, wherever it snapped
-const dragged = (p) => Math.hypot(p.x - drag.at.x, p.y - drag.at.y) > board.layout.r * 0.6;
+const dragged = (p: Point, at: Point) => Math.hypot(p.x - at.x, p.y - at.y) > board.layout.r * 0.6;
 $('cv').addEventListener('pointermove', (ev) => {
   if (!drag || ev.pointerId !== drag.pid) return;
   const p = cvPt(ev), n = dragNode(p, drag.from);
-  const tgt = dragged(p) && n && n.id !== drag.from ? n : null;
+  const tgt = dragged(p, drag.at) && n && n.id !== drag.from ? n : null;
   const moved = !n || n.id !== drag.from;
   if (moved) drag.retap = false;                   // it's a drag now, not a tap
   board.hoverMove = tgt ? { from: drag.from, to: tgt.id } : null;
   board.dragTo = tgt ? null : p;                   // free line to the finger until it snaps to a target
   board.draw();
 });
-function dragUp(ev) {
+function dragUp(ev: PointerEvent) {
   if (!drag || ev.pointerId !== drag.pid) return;
-  const { from, retap } = drag;
+  const { from, retap, at } = drag;
   const p = cvPt(ev), n = dragNode(p, from);
-  const tgt = dragged(p) && n && n.id !== from ? n : null;
+  const tgt = dragged(p, at) && n && n.id !== from ? n : null;
   endDrag();
   if (tgt && !inputLocked && !sweeping) {          // released on/near a highlighted target
     yourAttack(from, tgt.id); return;
@@ -658,7 +676,7 @@ $('cv').addEventListener('pointercancel', (ev) => { if (drag && ev.pointerId ===
 $('endturn').onclick = () => { if (!sweeping) yourEndTurn(); };
 // Animation speed is the bolt next to End Turn: off = fast, on = instant.
 let instant = false;
-function setInstant(on) {
+function setInstant(on: boolean) {
   instant = on;
   board.speed = on ? SPEEDS.instant : SPEEDS.fast;
   $('bolt').setAttribute('aria-pressed', String(on));
@@ -692,14 +710,14 @@ function hideSweep() { $('sweep').classList.remove('show'); }
 // A committed move invalidates any in-flight detection (the worker aborts it,
 // but its early result must not pop a stale offer for the pre-move position).
 function cancelSweepOffer() { ++sweepSeq; hideSweep(); }
-function setSweep(on) {
+function setSweep(on: boolean) {
   sweepOn = on;
   $('mi-sweep').classList.toggle('sel', on);
   try { localStorage.setItem('nwSweep', on ? '1' : '0'); } catch (_) {}
   if (!on) { ++sweepSeq; hideSweep(); }
 }
 (function loadSweep() {
-  let v; try { v = localStorage.getItem('nwSweep'); } catch (_) {}
+  let v: string | null = null; try { v = localStorage.getItem('nwSweep'); } catch (_) {}
   sweepOn = v === '1';
   $('mi-sweep').classList.toggle('sel', sweepOn);
 })();
@@ -712,10 +730,10 @@ async function maybeOfferSweep() {
   // bot combined) — a certified position short of that is still a game worth playing
   // by hand. Over 40 seeds this moved the median offer from 15 to 16 RED nodes.
   const c = state.counts;
-  const others = Object.keys(c).reduce((n, f) => f === 'red' ? n : n + c[f], 0);
+  const others = ORDER.reduce((n, f) => f === 'red' ? n : n + c[f], 0);
   if (c.red <= others) return;
   const my = ++sweepSeq, gid = state.id;
-  const res = await api(`/api/game/${gid}/sweep-check`, 'POST', { trials: SWEEP_TRIALS });
+  const res = await api<SweepCheck>(`/api/game/${gid}/sweep-check`, 'POST', { trials: SWEEP_TRIALS });
   if (my !== sweepSeq || sweeping || !state || state.id !== gid || state.over) return;
   if (res.ok) $('sweep').classList.add('show');
 }
@@ -727,7 +745,6 @@ async function runSweep() {
   hideSweep();
   sweeping = true;
   const gid = state.id;
-  let bailed = false;
   try {
     let guard = 400;                     // terminal-or-bust backstop, never hit in a won game
     // afterYourGame deals the next seed inside yourAttack/yourEndTurn, so a
@@ -735,9 +752,9 @@ async function runSweep() {
     while (state && state.id === gid && !state.over && guard--) {
       // Re-certify before committing: the dice keep rolling as the mop-up plays, so
       // "won when you pressed the button" is not the same claim as "still won now".
-      const chk = await api(`/api/game/${gid}/sweep-check`, 'POST',
+      const chk = await api<SweepCheck>(`/api/game/${gid}/sweep-check`, 'POST',
         { trials: SWEEP_STEP_TRIALS, maxLosses: SWEEP_STEP_LOSSES });
-      if (!chk.ok) { bailed = true; break; }
+      if (!chk.ok) break;
       const m = chk.move;                // from C — the same policy that was certified
       if (m) await yourAttack(m.from, m.to);
       else await yourEndTurn();
@@ -748,10 +765,10 @@ async function runSweep() {
 }
 
 // ============================ skill over time ============================
-const SKILL_ZOOMS = { 10: 10, 100: 100, all: Infinity };
+const SKILL_ZOOMS: Record<string, number> = { 10: 10, 100: 100, all: Infinity };
 let skillZoom = '100';
-try { const z = localStorage.getItem('nwSkillZoom'); if (z in SKILL_ZOOMS) skillZoom = z; } catch (_) {}
-function setSkillZoom(z) {
+try { const z = localStorage.getItem('nwSkillZoom'); if (z && z in SKILL_ZOOMS) skillZoom = z; } catch (_) {}
+function setSkillZoom(z: string) {
   skillZoom = z;
   try { localStorage.setItem('nwSkillZoom', z); } catch (_) {}
   refreshSkill();
@@ -759,31 +776,32 @@ function setSkillZoom(z) {
 
 function refreshSkill() {
   if (!$('sk') || !$('ov-res').classList.contains('show')) return;
-  document.querySelectorAll('#skzoom button').forEach(el => {
+  document.querySelectorAll<HTMLElement>('#skzoom button').forEach(el => {
     el.classList.toggle('sel', el.dataset.z === skillZoom);
     el.setAttribute('aria-pressed', String(el.dataset.z === skillZoom));
   });
   const history = skillHistory(M.rounds, reviewing, reviewErr);
   $('skill').hidden = !history.some(g => g.value != null);
   if ($('skill').hidden) return;
-  const c = skillComparison(history);
+  const c = skillComparison(history), both = 'now' in c ? c : null;
   const d = skillTrend(history, SKILL_ZOOMS[skillZoom]);
-  drawSkill($('sk'), d);
+  drawSkill($<HTMLCanvasElement>('sk'), d);
   const legend = $('sklegend');
   legend.dataset.state = c.state;
   const now = history.findLast(g => g.value != null)?.value;
-  legend.innerHTML = c.now != null
-    ? `<span>Avg loss/decision · ${c.earlier.toFixed(1)} → <b>${c.now.toFixed(1)}</b> pts</span>`
+  legend.innerHTML = both
+    ? `<span>Avg loss/decision · ${both.earlier.toFixed(1)} → <b>${both.now.toFixed(1)}</b> pts</span>`
     : now != null ? `<span>Avg loss/decision · <b>${now.toFixed(1)}</b> pts</span>` : '';
-  legend.setAttribute('aria-label', c.now != null
-    ? `Average decision cost: previous ${c.size} games ${c.earlier.toFixed(1)}, latest ${c.size} games ${c.now.toFixed(1)} points`
+  legend.setAttribute('aria-label', both
+    ? `Average decision cost: previous ${both.size} games ${both.earlier.toFixed(1)}, latest ${both.size} games ${both.now.toFixed(1)} points`
     : 'Average decision cost');
 }
 
 // Games with lost replay data are omitted. Pending reviews keep their place
 // until scored, so old scores do not slide forward into the latest game.
-let skHit = null;
-function skTap(ev) {
+type TrendPoint = SkillGame & { trend: number | null }
+let skHit: { W: number; padL: number; padR: number; games: TrendPoint[] } | null = null;
+function skTap(ev: MouseEvent) {
   if (!skHit) return;
   const frac = (ev.offsetX - skHit.padL) / (skHit.W - skHit.padL - skHit.padR);
   const i = Math.round(Math.min(1, Math.max(0, frac)) * (skHit.games.length - 1));
@@ -793,12 +811,12 @@ function skTap(ev) {
   openSeed(game.ri, { fromResults: true, sel: game.k });
 }
 
-function drawSkill(cv, games) {
+function drawSkill(cv: HTMLCanvasElement, games: TrendPoint[]) {
   const dpr = window.devicePixelRatio || 1;
   const rect = cv.getBoundingClientRect();
   const W = Math.max(1, Math.round(rect.width)), H = Math.max(1, Math.round(rect.height));
   cv.width = W * dpr; cv.height = H * dpr;
-  const g = cv.getContext('2d');
+  const g = cv.getContext('2d')!;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, W, H);
   const padL = 33, padR = 12, padT = 12, padB = 26;
@@ -811,15 +829,15 @@ function drawSkill(cv, games) {
     return;
   }
   const yMax = Math.max(10, Math.ceil(Math.max(...values) / 10) * 10);
-  const xOf = i => games.length < 2 ? (padL + W - padR) / 2 : padL + i / (games.length - 1) * (W - padL - padR);
-  const yOf = v => padT + (1 - v / yMax) * (H - padT - padB);
+  const xOf = (i: number) => games.length < 2 ? (padL + W - padR) / 2 : padL + i / (games.length - 1) * (W - padL - padR);
+  const yOf = (v: number) => padT + (1 - v / yMax) * (H - padT - padB);
   for (const v of [0, yMax / 2, yMax]) {
     g.fillStyle = '#8fcfb8'; g.textAlign = 'right'; g.fillText(String(v), padL - 7, yOf(v) + 3);
     g.strokeStyle = 'rgba(255,255,255,.09)'; g.lineWidth = 1;
     g.beginPath(); g.moveTo(padL, yOf(v)); g.lineTo(W - padR, yOf(v)); g.stroke();
   }
   g.fillStyle = '#8fcfb8'; g.textAlign = 'left'; g.fillText(`Game #${games[0].ri + 1}`, padL, H - 6);
-  if (games.length > 1) { g.textAlign = 'right'; g.fillText(`#${games.at(-1).ri + 1}`, W - padR, H - 6); }
+  if (games.length > 1) { g.textAlign = 'right'; g.fillText(`#${games[games.length - 1].ri + 1}`, W - padR, H - 6); }
   // Quiet game averages give context without burying the trend in move dots.
   games.forEach((p, i) => {
     if (p.value == null) return;
@@ -884,7 +902,7 @@ function showResults() {
     row.appendChild(c); row.appendChild(meta); row.appendChild(go);
     if (r.trim) {                 // replay detail was trimmed to fit storage — result only
       row.style.opacity = '.55';
-      meta.querySelector('.sd').textContent += ' · detail trimmed';
+      meta.querySelector('.sd')!.textContent += ' · detail trimmed';
     } else {
       row.onclick = () => { closeRes(); openSeed(i, { fromResults: true }); };
     }
@@ -892,8 +910,8 @@ function showResults() {
     if (r.startNodes) drawThumb(c, r.startNodes);
   }
   $('ov-res').classList.add('show');
-  document.querySelectorAll('#skzoom button').forEach(el => {
-    el.onclick = () => setSkillZoom(el.dataset.z);
+  document.querySelectorAll<HTMLElement>('#skzoom button').forEach(el => {
+    el.onclick = () => setSkillZoom(el.dataset.z!);
   });
   if ($('sk')) $('sk').onclick = skTap;
   // paint AFTER show — the canvas sizes itself from getBoundingClientRect,
@@ -916,14 +934,14 @@ $('res-reset').onclick = () => {
 // the whole point is the comparison, and two separate panels made you eyeball it.
 // Node count (not total strength) is the plotted power: it's the win condition (24).
 const YOU_COL = '#5fd0d6', AI_COL = '#f5c542';
-let pgHit = null;   // x-mapping of the last seed-graph draw, for tap-to-scrub
-function drawPower(cv, r) {
+let pgHit: { W: number; padL: number; padR: number; maxT: number } | null = null;   // for tap-to-scrub
+function drawPower(cv: HTMLCanvasElement, r: Round) {
   const you = r.you.hist, ai = r.ai.hist;
   const dpr = window.devicePixelRatio || 1;
   const rect = cv.getBoundingClientRect();
   const W = Math.max(1, Math.round(rect.width)), H = Math.max(1, Math.round(rect.height));
   cv.width = W * dpr; cv.height = H * dpr;
-  const g = cv.getContext('2d');
+  const g = cv.getContext('2d')!;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, W, H);
   const all = [...you, ...ai];
@@ -931,8 +949,8 @@ function drawPower(cv, r) {
   const maxT = Math.max(2, ...all.map(p => p.t));
   pgHit = all.length ? { W, padL, padR, maxT } : null;
   const maxN = Math.max(WIN_NODES, ...all.map(p => p.n));
-  const xOf = (t) => padL + (t - 1) / (maxT - 1) * (W - padL - padR);
-  const yOf = (v) => padT + (1 - v / maxN) * (H - padT - padB);
+  const xOf = (t: number) => padL + (t - 1) / (maxT - 1) * (W - padL - padR);
+  const yOf = (v: number) => padT + (1 - v / maxN) * (H - padT - padB);
   if (!all.length) {
     g.fillStyle = '#5f9e8e'; g.font = '11px -apple-system, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -943,7 +961,7 @@ function drawPower(cv, r) {
   g.strokeStyle = 'rgba(54,211,154,.30)'; g.lineWidth = 1; g.setLineDash([3, 4]);
   g.beginPath(); g.moveTo(0, yOf(WIN_NODES) + .5); g.lineTo(W, yOf(WIN_NODES) + .5); g.stroke();
   g.setLineDash([]);
-  const series = (h, col) => {
+  const series = (h: HistPoint[], col: string) => {
     if (!h.length) return;
     g.beginPath();
     h.forEach((p, i) => i ? g.lineTo(xOf(p.t), yOf(p.n)) : g.moveTo(xOf(p.t), yOf(p.n)));
@@ -958,13 +976,13 @@ function drawPower(cv, r) {
   // scale — 0-100% over the full plot height (so 50% is mid-plot; the dashed
   // 24-line belongs to the node scale). Dotted drawn under solid, thinner and
   // without glow, so node count stays the dominant read.
-  const yQ = (q) => padT + (1 - q) * (H - padT - padB);
-  const qseries = (h, col) => {
+  const yQ = (q: number) => padT + (1 - q) * (H - padT - padB);
+  const qseries = (h: CurvePoint[], col: string) => {
     if (!h.length) return;
     g.beginPath();
     let connected = false;
     for (const p of h) {
-      if (!Number.isFinite(p.q)) { connected = false; continue; }
+      if (p.q == null || !Number.isFinite(p.q)) { connected = false; continue; }
       if (connected) g.lineTo(xOf(p.t), yQ(p.q));
       else g.moveTo(xOf(p.t), yQ(p.q));
       connected = true;
@@ -972,7 +990,7 @@ function drawPower(cv, r) {
     g.setLineDash([2, 3.5]); g.strokeStyle = col; g.lineWidth = 1.5;
     g.lineJoin = 'round'; g.stroke(); g.setLineDash([]);
     const last = h[h.length - 1];
-    if (Number.isFinite(last.q)) {
+    if (last.q != null && Number.isFinite(last.q)) {
       g.fillStyle = col;
       g.beginPath(); g.arc(xOf(last.t), yQ(last.q), 2, 0, Math.PI * 2); g.fill();
     }
@@ -983,18 +1001,18 @@ function drawPower(cv, r) {
   series(you, YOU_COL);
 }
 
-function redrawSeedGraphs(r) {
-  if ($('pg')) drawPower($('pg'), r);
+function redrawSeedGraphs(r: Round) {
+  if ($('pg')) drawPower($<HTMLCanvasElement>('pg'), r);
 }
 
 // Tap the seed graph → scrub the inspector to that turn: x maps back to a turn,
 // and the first of the active side's moves on (or after) it gets selected.
-function moveTurns(moves) {
-  const ts = []; let t = 1;                  // end-turn moves advance the turn
+function moveTurns(moves: Move[]) {
+  const ts: number[] = []; let t = 1;                  // end-turn moves advance the turn
   for (const mv of moves) { ts.push(t); if (mv.e) t++; }
   return ts;
 }
-function pgTap(ev) {
+function pgTap(ev: MouseEvent) {
   if (!pgHit) return;
   const frac = (ev.offsetX - pgHit.padL) / (pgHit.W - pgHit.padL - pgHit.padR);
   const t = Math.round(1 + Math.min(1, Math.max(0, frac)) * (pgHit.maxT - 1));
@@ -1007,23 +1025,23 @@ function pgTap(ev) {
 }
 
 // ============================ per-seed detail ============================
-let sdIdx = 0, sdTab = 'you', sdSel = -1, ib = null, sdFromResults = false;
+let sdIdx = 0, sdTab: 'you' | 'ai' = 'you', sdSel = -1, ib: Board | null = null, sdFromResults = false;
 
-function mvLabel(l) {
+function mvLabel(l: Label | 'end' | null | undefined) {
   if (l === 'end' || !l) return '<span class="lbl">End turn</span>';
   return `<span class="pip ${l.f.owner}">${l.f.strength}</span>`
        + `<span class="arrow">${dirArrow(l.f, l.t)}</span>`
        + `<span class="pip ${l.t.owner}">${l.t.strength}</span><span class="lbl"></span>`;
 }
 
-const resTag = (x) => `<span class="tag ${x || 'none'}">${x === 'won' ? 'W' : x === 'lost' ? 'L' : '—'}</span>`;
+const resTag = (x: Side['result']) => `<span class="tag ${x || 'none'}">${x === 'won' ? 'W' : x === 'lost' ? 'L' : '—'}</span>`;
 // Only a finished game gets a final score — mid-game the AI's node count is not a
 // result and must not be dressed up as one.
-const sdFin = (side) => !side.hist.length ? 'queued'
+const sdFin = (side: Side) => !side.hist.length ? 'queued'
   : !side.result ? 'still playing…'
   : `${side.red} node${side.red === 1 ? '' : 's'} · ${side.turns} turn${side.turns === 1 ? '' : 's'}`;
-const sdTitle = (i, r) => `Seed ${i + 1} · You ${resTag(r.you.result)} AI ${resTag(r.ai.result)}`;
-const sdLegend = (r) => `
+const sdTitle = (i: number, r: Round) => `Seed ${i + 1} · You ${resTag(r.you.result)} AI ${resTag(r.ai.result)}`;
+const sdLegend = (r: Round) => `
   <span><i style="background:${YOU_COL}"></i>You — ${sdFin(r.you)}</span>
   <span><i style="background:${AI_COL}"></i>AI — ${sdFin(r.ai)}</span>
   <span><i class="dashq"></i>dotted: win%</span>`;
@@ -1032,7 +1050,7 @@ const sdLegend = (r) => `
 // its half unfinished. Fill it in the moment it lands rather than leaving a stale
 // "still playing…" / "AI moves (0)" panel that never updates. Deliberately does NOT
 // re-run openSeed: that would reset your tab, selection and re-trigger scoring.
-function refreshSeedPanel(i) {
+function refreshSeedPanel(i: number) {
   if (!$('ov-seed').classList.contains('show') || sdIdx !== i) return;
   const r = M.rounds[i];
   $('sd-title').innerHTML = sdTitle(i, r);
@@ -1043,7 +1061,7 @@ function refreshSeedPanel(i) {
   if (sdTab === 'ai') { renderList(); select(0); }     // its list was empty before
 }
 
-function openSeed(i, opts = {}) {
+function openSeed(i: number, opts: { fromResults?: boolean; sel?: number } = {}) {
   const r = M.rounds[i];
   if (r.trim) { if (opts.fromResults) showResults(); return; }   // nothing to replay
   sdIdx = i; sdSel = -1;
@@ -1067,12 +1085,12 @@ function openSeed(i, opts = {}) {
   // Show BEFORE painting: every canvas here sizes itself from getBoundingClientRect,
   // which is 0x0 while the overlay is still display:none.
   $('ov-seed').classList.add('show');
-  ib = new Board($('ib'), $('ibwrap'));
+  ib = new Board($<HTMLCanvasElement>('ib'), $('ibwrap'));
   redrawSeedGraphs(r);
   $('pg').onclick = pgTap;
-  document.querySelectorAll('#sd-tabs > div').forEach(el => {
+  document.querySelectorAll<HTMLElement>('#sd-tabs > div').forEach(el => {
     el.onclick = () => {
-      sdTab = el.dataset.tab; sdSel = -1;
+      sdTab = el.dataset.tab === 'ai' ? 'ai' : 'you'; sdSel = -1;
       document.querySelectorAll('#sd-tabs > div').forEach(d => d.classList.toggle('sel', d === el));
       renderList();
       select(0);                          // never leave the inspector blank
@@ -1110,14 +1128,14 @@ function renderList() {
   if (sdTab === 'you') {
     const rv = side.review;
     if (rv) {
-      const [ok, inacc, mist, blun] = rv.counts;
+      const [ok, inacc, mist, blun] = rv.counts ?? [0, 0, 0, 0];
       const sum = document.createElement('div');
       // The stacked tier bar carries the whole summary. The per-move rows below are
       // where the detail lives; aggregate cards and prose just restated them.
       sum.innerHTML = `<div id="rvbar"></div>`;
       list.appendChild(sum);
-      const bar = $('rvbar'), tot = Math.max(1, rv.nLive ?? rv.n);
-      for (const [c, col] of [[ok, '#36d39a'], [inacc, '#f5c542'], [mist, '#ff9f45'], [blun, '#ff4d5e']]) {
+      const bar = $('rvbar'), tot = Math.max(1, rv.nLive ?? rv.n ?? 0);
+      for (const [c, col] of [[ok, '#36d39a'], [inacc, '#f5c542'], [mist, '#ff9f45'], [blun, '#ff4d5e']] as const) {
         if (!c) continue;
         const el = document.createElement('i');
         el.style.width = (100 * c / tot) + '%'; el.style.background = col;
@@ -1166,10 +1184,10 @@ function renderList() {
     row.onclick = () => select(k);
     if (canHover) row.onmouseenter = () => hoverPreview(k);
     list.appendChild(row);
-    if (sm && sm.bestLbl && !sm.dead && sm.gap >= 5) {
+    if (sm?.bestLbl && !sm.dead && sm.gap != null && sm.gap >= 5) {
       const hint = document.createElement('div');
       hint.className = 'mvbest';
-      hint.innerHTML = `best was ${mvLabel(sm.bestLbl)} · ${Math.round(sm.bestQ * 100)}%`;
+      hint.innerHTML = `best was ${mvLabel(sm.bestLbl)} · ${Math.round((sm.bestQ ?? 0) * 100)}%`;
       list.appendChild(hint);
     }
   });
@@ -1180,20 +1198,21 @@ function renderList() {
 let inspectSeq = 0;
 // Paint the board as it stood going into move k (bit-exact replay from the seed).
 // Shared by tap-to-select and hover preview — only select() moves the selection.
-async function showMove(k) {
+async function showMove(k: number) {
   const r = M.rounds[sdIdx];
   const side = sdTab === 'you' ? r.you : r.ai;
   if (k < 0 || k >= side.moves.length) return;
   const my = ++inspectSeq;
   $('ibinfo').textContent = 'Replaying…';
-  let s;
+  let s: GameView;
   try { s = await inspectMove(r.seed, side.moves, k, r.rules ?? LEGACY_RULES_VERSION); }
   catch (e) {
-    if (my === inspectSeq) $('ibinfo').textContent = `Replay failed: ${e.message || e}`;
+    if (my === inspectSeq) $('ibinfo').textContent = `Replay failed: ${e instanceof Error ? e.message : e}`;
     return;
   }
   if (my !== inspectSeq) return;                 // a newer selection superseded this
   const mv = side.moves[k];
+  if (!ib) return;
   ib.setView(s);
   // highlight the move about to be played
   ib.hoverMove = mv.e ? null : { from: mv.a[0], to: mv.a[1] };
@@ -1203,7 +1222,7 @@ async function showMove(k) {
   $('ibinfo').innerHTML = `<b>Move ${k + 1}</b> · turn ${s.turn} · ${s.counts.red} red nodes`
     + `${mv.e ? ' · end turn' : ''}`;
 }
-function select(k) {
+function select(k: number) {
   const r = M.rounds[sdIdx];
   const side = sdTab === 'you' ? r.you : r.ai;
   if (k < 0 || k >= side.moves.length) return;
@@ -1211,7 +1230,7 @@ function select(k) {
   renderList();
   showMove(k);
 }
-const step = (d) => select(sdSel < 0 ? 0 : sdSel + d);
+const step = (d: number) => select(sdSel < 0 ? 0 : sdSel + d);
 
 // Hovering a move row previews it on the board without moving the selection;
 // leaving the list snaps back to the selected move. Pointer devices only —
@@ -1219,7 +1238,7 @@ const step = (d) => select(sdSel < 0 ? 0 : sdSel + d);
 // list doesn't fire a replay per row; inspectSeq makes stale replays no-ops.
 const canHover = matchMedia('(hover: hover)').matches;
 let hoverTimer = 0, hoverK = -1;
-function hoverPreview(k) {
+function hoverPreview(k: number) {
   if (k === hoverK) return;
   hoverK = k;
   clearTimeout(hoverTimer);
@@ -1232,9 +1251,9 @@ function hoverEnd() {
   if (sdSel >= 0) showMove(sdSel);
 }
 
-const reviewing = new Set();   // round indices being scored (transient — never saved)
-const reviewErr = {};          // last scoring error per round index (transient)
-const seedPanelOn = (i) => sdIdx === i && $('ov-seed').classList.contains('show');
+const reviewing = new Set<number>();          // round indices being scored (transient — never saved)
+const reviewErr: Record<number, string> = {}; // last scoring error per round index (transient)
+const seedPanelOn = (i: number) => sdIdx === i && $('ov-seed').classList.contains('show');
 // Coalesce completions from multiple workers into one visible update per frame.
 let reviewPaint = 0;
 function scheduleReviewPaint() {
@@ -1248,7 +1267,7 @@ function scheduleReviewPaint() {
     refreshSkill();
   });
 }
-async function runReview(i) {
+async function runReview(i: number) {
   if (reviewing.has(i)) return;
   reviewing.add(i);
   delete reviewErr[i];
@@ -1273,7 +1292,7 @@ async function runReview(i) {
     }, () => seedPanelOn(i) ? Number.MAX_SAFE_INTEGER : i);
     save();
   } catch (e) {
-    reviewErr[i] = String(e && e.message || e);
+    reviewErr[i] = e instanceof Error ? e.message : String(e);
     reportError('review', `seed ${i + 1}: ${errMsg(e)}`);
     save();                          // keep completed positions available for retry
   } finally {
@@ -1321,7 +1340,7 @@ async function scorePump() {
 const menupop = $('menupop');
 $('menu').onclick = () => menupop.classList.toggle('show');
 document.addEventListener('click', (e) => {
-  if (menupop.classList.contains('show') && !$('menuwrap').contains(e.target))
+  if (menupop.classList.contains('show') && !$('menuwrap').contains(e.target as Node))
     menupop.classList.remove('show');
 });
 
@@ -1358,7 +1377,7 @@ const SETTINGS = ['nwSweep', 'nwSpeed', 'nwSkillZoom'];
 $('mi-export').onclick = () => {
   menupop.classList.remove('show');
   save();
-  const get = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+  const get = (k: string) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const tally = JSON.stringify(M), stored = get(KEY), now = performance.now();
   const data = {
     app: 'network-wars-h2h', exported: new Date().toISOString(),
@@ -1390,7 +1409,7 @@ $('mi-export').onclick = () => {
 const importInput = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' });
 $('mi-import').onclick = () => { menupop.classList.remove('show'); importInput.click(); };
 importInput.onchange = async () => {
-  const file = importInput.files[0];
+  const file = importInput.files?.[0];
   importInput.value = '';
   if (!file) return;
   let data;
@@ -1422,7 +1441,7 @@ function renderErrors() {
 // Is this tab running the latest deploy? A resumed phone tab keeps the code it
 // loaded, and sw.js serves the cached page when the network stalls. Ask the
 // network for the current page (sw.js lets this through) and compare releases.
-let latestRelease = null;             // null: not checked, offline, or dev
+let latestRelease: string | null = null;   // null: not checked, offline, or dev
 async function checkLatest() {
   if (RELEASE === 'dev') return;
   try {
@@ -1431,10 +1450,10 @@ async function checkLatest() {
   } catch (_) { latestRelease = null; }
   renderErrors();
 }
-const short = (v) => v.slice(0, 7);
+const short = (v: string) => v.slice(0, 7);
 // What was running when you looked: version, device, AI state, and any request still waiting.
 function errContext() {
-  const now = performance.now(), s = (ms) => (ms / 1000).toFixed(1) + 's';
+  const now = performance.now(), s = (ms: number) => (ms / 1000).toFixed(1) + 's';
   const inFlight = engines.flatMap(e => [...e.pending.values()].map(p =>
     `${e.name} ${p.path} ${s(now - p.t)}`));
   return [
@@ -1523,7 +1542,7 @@ async function resume() {
   await startSeed();                             // deals the seed + kicks the AI pump
   if (!moves.length) return;
   const sp = board.speed; board.speed = 0;       // replay instantly
-  let s = state;
+  let s = state!;
   for (const mv of moves) {
     s = mv.e ? await api(`/api/game/${s.id}/end-turn`, 'POST')
              : await api(`/api/game/${s.id}/attack`, 'POST', { from: mv.a[0], to: mv.a[1] });

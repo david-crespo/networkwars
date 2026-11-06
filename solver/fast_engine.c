@@ -3,7 +3,7 @@
  * One implementation of the whole game: board generation + deal, the four
  * deterministic bots, the fair-coin-attrition battle, reinforcement, win check,
  * and an open-loop PUCT/MCTS player for RED. Python (fastnw.py) and the browser
- * (src/fastnw.js, over the WASM build) are thin clients over this; there is no
+ * (src/fastnw.ts, over the WASM build) are thin clients over this; there is no
  * second port.
  *
  * Board state = owner[N] (0=red, 1..4=bots), strength[N]; functions mutate the

@@ -1,8 +1,8 @@
-// End-to-end gate for src/engine.worker.js — the game/orchestration layer
-// the page (src/main.js) talks to. Emulates just enough of a Web Worker (self.onmessage /
+// End-to-end gate for src/engine.worker.ts — the game/orchestration layer
+// the page (src/main.ts) talks to. Emulates just enough of a Web Worker (self.onmessage /
 // self.postMessage) to import it in node and drive the SAME /api/game/* request
 // sequence the page issues, so the routes are exercised as shipped rather than
-// only through fastnw.js.
+// only through fastnw.ts.
 //
 // What it asserts, per seed: a game plays to a real terminal state; the sweep-up
 // certificate is never handed a finished game and never fires on an opening; and an
@@ -21,7 +21,7 @@ self.postMessage = (msg) => {
   const r = pending.get(msg.id);
   if (r) { pending.delete(msg.id); r(msg.result); }
 };
-await import('../src/engine.worker.js');
+await import('../src/engine.worker.ts');
 
 const timings = [];               // ms per full-strength sweep certificate (UI cost)
 function api(path, method = 'GET', body = null) {

@@ -2,14 +2,14 @@
 // node solver/review_bench.mjs [seeds=11,17,23] [workers=4] [referenceMax=96000]
 // The larger search is a stability reference, not ground truth about optimal play.
 import { Worker, isMainThread, parentPort, MessageChannel } from 'node:worker_threads';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { tierOf } from '../src/review.js';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { createReviewer, tierOf } from '../src/review.ts';
 
 if (!isMainThread) {
   globalThis.self = globalThis;
   globalThis.MessageChannel ??= MessageChannel;
   self.postMessage = m => parentPort.postMessage(m);
-  await import('../src/engine.worker.js');
+  await import('../src/engine.worker.ts');
   parentPort.on('message', data => self.onmessage({ data }));
 } else {
   const seeds = (process.argv[2] || '11,17,23').split(',').map(Number);
@@ -59,15 +59,11 @@ if (!isMainThread) {
       rounds.push({ seed, rules: s.rules, you: { moves } });
       console.log(`Recorded seed ${seed}: ${moves.length} decisions, ${s.youWon ? 'win' : 'loss'}`);
     }
-    const source = await readFile(new URL('../src/review.js', import.meta.url), 'utf8');
     const runs = {};
     for (const [name, limits] of [['current', [16000, 24000]], ['half', [8000, 12000]],
       ['reference', [referenceMax, referenceMax]]]) {
       const poolStart = threads.length;
-      const module = await import('data:text/javascript;base64,' + Buffer.from(source.replace(
-        'REVIEW_SIMS = 16000, REVIEW_MAX = 24000',
-        `REVIEW_SIMS = ${limits[0]}, REVIEW_MAX = ${limits[1]}`)).toString('base64'));
-      const reviewer = module.createReviewer(makeEngine, workers);
+      const reviewer = createReviewer(makeEngine, workers, { sims: limits[0], max: limits[1] });
       profile = {};
       const start = performance.now(), reviews = [];
       for (const r of rounds) {

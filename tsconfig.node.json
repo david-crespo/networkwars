@@ -1,0 +1,7 @@
+// Build and test configs, and the Playwright tests.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "lib": ["es2024", "dom"], "types": ["node"] },
+  "include": ["vite.config.ts", "playwright.config.ts", "e2e"],
+  "exclude": []
+}

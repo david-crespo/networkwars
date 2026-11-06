@@ -166,7 +166,7 @@ positions needs similarly careful validation.
 ```sh
 node solver/review_scheduler_gate.mjs
 node solver/review_gate.mjs 11 4
-# Optional baseline path after the worker count: saved pre-change review.js, with an .mjs extension.
+# Optional baseline path after the worker count: saved pre-change review.ts, with an .mjs extension.
 node solver/review_gate.mjs 11 4 /tmp/review-before.mjs
 node solver/worker_gate.mjs 40
 node solver/review_bench.mjs 11,12,13,14,15,16,17,18,19,20,21,22 4 96000

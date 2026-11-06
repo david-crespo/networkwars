@@ -1,0 +1,7 @@
+// The service worker runs in a ServiceWorkerGlobalScope, not a page.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "lib": ["es2024", "webworker"], "types": [] },
+  "include": ["src/sw.ts"],
+  "exclude": []
+}

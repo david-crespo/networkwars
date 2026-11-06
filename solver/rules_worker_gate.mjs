@@ -2,13 +2,13 @@
 // Run: node solver/rules_worker_gate.mjs
 import assert from 'node:assert/strict';
 import { MessageChannel } from 'node:worker_threads';
-import { createReplayInspector } from '../src/replay.js';
+import { createReplayInspector } from '../src/replay.ts';
 globalThis.self = globalThis;
 globalThis.MessageChannel ??= MessageChannel;
 const pending = new Map();
 let sequence = 0;
 self.postMessage = m => { const done = pending.get(m.id); pending.delete(m.id); done(m.result); };
-await import('../src/engine.worker.js');
+await import('../src/engine.worker.ts');
 function api(path, method = 'GET', body = null) {
   const id = ++sequence;
   return new Promise(done => { pending.set(id, done); self.onmessage({data:{id,path,method,body}}); });

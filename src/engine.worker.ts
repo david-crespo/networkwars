@@ -3,19 +3,57 @@
 // game state and sequences C-engine calls, building the view/log/events/search
 // JSON the page speaks. No game
 // logic lives here — board-gen, the four bots, the fair-coin-attrition battle, reinforcement
-// and the search are all in fast_engine.c (via fastnw.js). The frontend is now fully
+// and the search are all in fast_engine.c (via fastnw.ts). The frontend is now fully
 // self-contained: no HTTP API, no Python.
-import { loadEngine, FACTIONS, FIDX, MAXN, RULES_VERSION } from './fastnw.js';
+import { loadEngine, FACTIONS, FIDX, MAXN, RULES_VERSION, type Adj, type Engine, type Link } from './fastnw.ts';
+import type { AttackEvent, Faction, GameView, Move, NodeView, ReinforceEvent, Reply, SearchResult,
+  SweepCheck, TurnEvent } from './types.ts';
 
-let E = null;                 // the WASM engine (loaded once)
-const GAMES = {};
+interface Game {
+  id: string
+  seed: number | null
+  rules: number
+  owner: Int32Array
+  strength: Int32Array
+  x: Int32Array
+  y: Int32Array
+  adj: Adj
+  links: Link[]
+  /** The real game dice: the mulberry32 state between actions. */
+  mb: number
+  turn: number
+  over: boolean
+  youWon: boolean
+  winner: Faction | null
+}
+
+/** A request body: whatever fields its route reads. */
+interface Body {
+  seed?: number
+  rules?: number
+  moves?: Move[]
+  from?: number
+  to?: number
+  sims?: number
+  maxSims?: number
+  tag?: unknown
+  grade?: boolean
+  trials?: number
+  maxLosses?: number
+  nodes?: NodeView[]
+  mb?: number
+}
+
+let E!: Engine;               // the WASM engine (loaded once)
+let loaded = false;
+const GAMES: Record<string, Game> = {};
 let nextId = 0;
 const newId = () => String(++nextId);
 
 // Make the C engine's global topology match game g before any mutation (server._select).
-function select(g) { E.setTopologyCsr(g.owner.length, g.adj); }
+function select(g: Game) { E.setTopologyCsr(g.owner.length, g.adj); }
 
-function updateWinner(g) {
+function updateWinner(g: Game) {
   const c = E.counts(g.owner);
   const w = E.checkWinner(g.owner);
   if (w >= 0) { g.over = true; g.winner = FACTIONS[w]; g.youWon = (w === 0); return; }
@@ -27,7 +65,7 @@ function updateWinner(g) {
   if (c[0] === 0) { g.over = true; g.youWon = false; }
 }
 
-function view(g) {
+function view(g: Game): GameView {
   const n = g.owner.length;
   const nodes = [];
   for (let i = 0; i < n; i++) {
@@ -35,17 +73,17 @@ function view(g) {
       owner: FACTIONS[g.owner[i]], strength: g.strength[i] });
   }
   const c = E.counts(g.owner);
-  const counts = {};
+  const counts = {} as Record<Faction, number>;
   for (let f = 0; f < 5; f++) counts[FACTIONS[f]] = c[f];
   const legal = g.over ? [] : E.legalMoves(g.owner, g.strength, g.adj).map(([a, b]) => ({ from: a, to: b }));
   return { id: g.id, seed: g.seed, nodes, links: g.links, counts, turn: g.turn, legalMoves: legal,
     over: g.over, youWon: g.youWon, winner: g.winner, rules: g.rules };
 }
 
-function newGame(seed, persist = true, rules = RULES_VERSION) {
+function newGame(seed?: number | null, persist = true, rules = RULES_VERSION): Game {
   if (seed == null) seed = (Math.floor(Math.random() * 0x7fffffff) + 1);
   const d = E.newGame(seed, rules);
-  const g = { id: newId(), owner: d.owner, strength: d.strength, x: d.x, y: d.y,
+  const g: Game = { id: newId(), owner: d.owner, strength: d.strength, x: d.x, y: d.y,
     adj: d.adj, links: d.links, mb: d.mb, turn: 1, over: false, youWon: false,
     winner: null, seed, rules };
   if (persist) GAMES[g.id] = g;
@@ -54,13 +92,13 @@ function newGame(seed, persist = true, rules = RULES_VERSION) {
 
 // Start a game from an externally-parsed board (list of {id,x,y,owner,strength}).
 // Adjacency = 8-connectivity over (x,y), the engine's lattice.
-function gameFromBoard(boardNodes, mbSeed) {
+function gameFromBoard(boardNodes: NodeView[] | undefined, mbSeed?: number): Game {
   if (!Array.isArray(boardNodes) || !boardNodes.length || boardNodes.length > MAXN)
     throw new Error('invalid board size');
   const n = boardNodes.length;
   const owner = new Int32Array(n), strength = new Int32Array(n);
   const x = new Int32Array(n), y = new Int32Array(n);
-  const ids = new Set(), cells = new Set();
+  const ids = new Set<number>(), cells = new Set<string>();
   for (const nd of boardNodes) {
     if (!nd || !Number.isInteger(nd.id) || nd.id < 0 || nd.id >= n || ids.has(nd.id) ||
         !Number.isInteger(nd.x) || !Number.isInteger(nd.y) ||
@@ -73,13 +111,13 @@ function gameFromBoard(boardNodes, mbSeed) {
     strength[nd.id] = nd.strength;
     x[nd.id] = nd.x; y[nd.id] = nd.y;
   }
-  const adj = Array.from({ length: n }, () => []);
+  const adj: Adj = Array.from({ length: n }, () => []);
   for (let i = 0; i < n; i++)
     for (let j = i + 1; j < n; j++)
       if (Math.abs(x[i] - x[j]) <= 1 && Math.abs(y[i] - y[j]) <= 1) { adj[i].push(j); adj[j].push(i); }
   E.setTopologyCsr(n, adj);
   const links = E.getLinks();
-  const g = { id: newId(), owner, strength, x, y, adj, links,
+  const g: Game = { id: newId(), owner, strength, x, y, adj, links,
     mb: (mbSeed != null ? mbSeed : (Math.floor(Math.random() * 0x7fffffff) + 1)),
     turn: 1, over: false, youWon: false, winner: null, seed: null, rules: RULES_VERSION };
   updateWinner(g);
@@ -87,7 +125,7 @@ function gameFromBoard(boardNodes, mbSeed) {
   return g;
 }
 
-function doAttack(g, frm, to) {
+function doAttack(g: Game, frm: number, to: number): GameView | Reply {
   if (g.over) return { error: 'game is over', _status: 409 };
   select(g);
   if (g.owner[frm] !== 0 || !E.isLegalAttack(g.owner, g.strength, frm, to))
@@ -96,7 +134,7 @@ function doAttack(g, frm, to) {
   const { flips, meta } = E.attackLogged(g.owner, g.strength, frm, to);
   g.mb = E.getMb32();
   updateWinner(g);
-  const log = [{ type: 'attack', attacker: 'red', from: frm, to,
+  const log: AttackEvent[] = [{ type: 'attack', attacker: 'red', from: frm, to,
     captured: meta.captured, fromStart: meta.fromStart, toStart: meta.toStart, flips,
     fromStrength: meta.fromStrength, toStrength: meta.toStrength }];
   const out = view(g); out.log = log;
@@ -108,17 +146,17 @@ function doAttack(g, frm, to) {
 // atomic end_turn (reinforce is RNG-free; only battles advance the mb32 dice), so the
 // final board + g.mb are bit-identical to end_turn — just observable. Port of
 // server.do_end_turn.
-function doEndTurn(g) {
+function doEndTurn(g: Game): GameView | Reply {
   if (g.over) return { error: 'game is over', _status: 409 };
   select(g);
   E.useMb32(g.mb);
   const owner = g.owner, strength = g.strength;
-  const events = [];
+  const events: TurnEvent[] = [];
 
-  const reinforceStep = (fidx) => {
+  const reinforceStep = (fidx: number) => {
     const before = strength.slice();
     E.reinforce(owner, strength, fidx);
-    const ch = [];
+    const ch: ReinforceEvent['changes'] = [];
     for (let i = 0; i < strength.length; i++)
       if (strength[i] !== before[i]) ch.push({ id: i, to: strength[i] });
     if (ch.length) events.push({ type: 'reinforce', faction: FACTIONS[fidx], changes: ch });
@@ -161,11 +199,11 @@ function doEndTurn(g) {
 // future dice into play. Port of server.do_search.
 // Shape a root-children readout (acts/visits/q from the engine) into the ranked
 // {winexp, visits, top, best} the UI speaks — used for both progress + final.
-function buildResult(acts, visits, q) {
+function buildResult(acts: Int32Array, visits: Int32Array, q: Float64Array): SearchResult {
   if (acts.length === 0) return { winexp: null, visits: 0, top: [], best: null };
   const order = [...acts.keys()].sort((a, b) => visits[b] - visits[a]);
   let tv = 0; for (const v of visits) tv += v;
-  const top = [];
+  const top: SearchResult['top'] = [];
   for (const k of order) {
     const a = acts[k];
     const [frm, to] = a === -1 ? [null, null] : [a >> 8, a & 0xFF];
@@ -199,8 +237,8 @@ function buildResult(acts, visits, q) {
 // score-my-decisions) — never by autoplay or the h2h AI, which are trying to win.
 // The engine flag is sticky, so it's cleared on every exit (abort included).
 const SEARCH_CHUNK = 2000;
-async function doSearch(g, sims = 2000, cPuct = 2.5, nroll = 1, simSeed = 0x12345678,
-                        maxSims = 150000, tag = null, grade = false) {
+async function doSearch(g: Game, sims = 2000, cPuct = 2.5, nroll = 1, simSeed = 0x12345678,
+                        maxSims = 150000, tag: unknown = null, grade = false) {
   select(g);
   E.useSim(simSeed);
   E.setGrade(grade ? 1 : 0);
@@ -239,7 +277,7 @@ async function doSearch(g, sims = 2000, cPuct = 2.5, nroll = 1, simSeed = 0x1234
 // (see fast_engine.c: the old "every root move wins >99.95%" gate authorized
 // mop-ups that lost 5.3% of the time). Cheap enough to run every move: a trial
 // costs about one rollout, so 1000 of them ~ a 1000-sim search.
-function doSweepCheck(g, trials, maxLosses) {
+function doSweepCheck(g: Game, trials: number, maxLosses: number): SweepCheck {
   select(g);
   if (g.over) return { ok: false, over: true, losses: 0, trials, maxLosses };
   const losses = E.sweepCertify(g.owner, g.strength, g.turn, trials, maxLosses);
@@ -248,10 +286,9 @@ function doSweepCheck(g, trials, maxLosses) {
 }
 
 // ---- message dispatch: HTTP-style routes over postMessage ----
-function route(path, method, body) {
+function route(path: string, method: string, body: Body = {}): object | Promise<object> {
   const q = path.indexOf('?');
   if (q >= 0) path = path.slice(0, q);
-  body = body || {};
 
   // One pass supplies every historical position. No battle logs, per-move
   // messages, or retained game in GAMES; the caller caches this one trajectory.
@@ -259,7 +296,7 @@ function route(path, method, body) {
     const g = newGame(body.seed, false, body.rules);
     const frames = [view(g)];
     E.useMb32(g.mb);
-    for (const mv of body.moves) {
+    for (const mv of body.moves ?? []) {
       if (g.over) throw new Error('replay continues after game over');
       E.replayMove(g.owner, g.strength, mv);
       if (mv.e) g.turn++;
@@ -280,7 +317,7 @@ function route(path, method, body) {
     if (!g) return { error: 'no such game', _status: 404 };
     if (method === 'DELETE' && action === '') { delete GAMES[gid]; return { ok: true }; }
     if (method === 'GET' && action === '') return view(g);
-    if (action === 'attack') return doAttack(g, body.from, body.to);
+    if (action === 'attack') return doAttack(g, body.from ?? -1, body.to ?? -1);
     if (action === 'end-turn') return doEndTurn(g);
     if (action === 'search') return doSearch(g,
       body.sims != null ? body.sims | 0 : 2000, 2.5, 1, 0x12345678,
@@ -303,18 +340,19 @@ function route(path, method, body) {
 // The point of the explicit queue (vs handling each message inline) is that the
 // search can SEE waiting requests and abort between chunks, so game actions get
 // sub-chunk (~50ms) latency instead of queueing behind a multi-second search.
-const inbox = [];
+interface Request { id: number; path: string; method?: string; body?: Body }
+const inbox: Request[] = [];
 let pumping = false;
 
 // Liveness, for the page's stall reports: the request being served and since when,
 // and how far the current search has got. Read by probe(), which answers a ping
 // outside the request queue, so a stalled request still shows where it stopped.
-const live = { path: null, since: 0, chunks: 0, chunkAt: 0, yieldSince: 0 };
+const live = { path: null as string | null, since: 0, chunks: 0, chunkAt: 0, yieldSince: 0 };
 function probe() {
-  const now = performance.now(), ago = (t) => t ? Math.round(now - t) : null;
+  const now = performance.now(), ago = (t: number) => t ? Math.round(now - t) : null;
   return { pumping, queued: inbox.length, path: live.path, busyMs: ago(live.since),
     chunks: live.chunks, lastChunkMs: ago(live.chunkAt), yieldWaitMs: ago(live.yieldSince),
-    engine: !!E };
+    engine: loaded };
 }
 
 // Macrotask yield between search chunks: client postMessages that arrived during
@@ -325,12 +363,12 @@ function probe() {
 // (2026-09-28: the phone's AI and review workers all stalled on /search). Timer
 // yields measured no slower (20k-sim searches, WebKit and Chromium: ~600 ms either
 // way), and yield_gate.mjs keeps MessageChannel out of this worker.
-const yieldToInbox = () => new Promise(resolve => {
+const yieldToInbox = () => new Promise<void>(resolve => {
   live.yieldSince = performance.now();
   setTimeout(() => { live.yieldSince = 0; resolve(); }, 0);
 });
 
-self.onmessage = (ev) => {
+self.onmessage = (ev: MessageEvent) => {
   if (ev.data && ev.data.ping) { self.postMessage({ type: 'pong', probe: probe() }); return; }
   inbox.push(ev.data); pump();
 };
@@ -339,11 +377,12 @@ async function pump() {
   if (pumping) return;
   pumping = true;
   while (inbox.length) {
-    const { id, path, method, body } = inbox.shift();
+    const { id, path, method, body } = inbox.shift()!;
     Object.assign(live, { path, since: performance.now(), chunks: 0, chunkAt: 0 });
     try {
-      if (!E) {
+      if (!loaded) {
         E = await loadEngine();
+        loaded = true;
         // Settle on a clear winner: stop once the leading move's win-prob is decisive
         // (<=3% / >=97%) or dominates the rest by >=15pts, with >=512 visits. Offline
         // A/B (adaptive 2k-20k, 80 games): identical 97.5% winrate, ~3x fewer sims/move.
@@ -352,7 +391,7 @@ async function pump() {
       const result = await route(path, method || 'GET', body);
       self.postMessage({ id, result });
     } catch (err) {
-      self.postMessage({ id, result: { error: String(err && err.message || err) } });
+      self.postMessage({ id, result: { error: String(err instanceof Error ? err.message : err) } });
     }
   }
   live.path = null; live.since = 0;

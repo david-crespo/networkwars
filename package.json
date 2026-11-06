@@ -4,12 +4,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.sw.json && tsc -p tsconfig.node.json",
     "preview": "wrangler dev",
     "deploy": "wrangler deploy",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
     "vite": "^8.3.6",
     "wrangler": "^4.158.0"
   },

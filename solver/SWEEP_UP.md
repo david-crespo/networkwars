@@ -117,7 +117,7 @@ stopped — this is no longer a sure win. Your move."*
   stream untouched** (it rolls on the private sim stream — otherwise merely *offering*
   a sweep would change the game's dice).
 - `worker_gate.mjs` (new): emulates a Web Worker in node and drives
-  `engine.worker.js` over N seeds through the pages' own request sequence, asserting
+  `engine.worker.ts` over N seeds through the pages' own request sequence, asserting
   every accepted sweep either finishes the game or bails out through the re-check.
 
 ## Not fixed (open)
