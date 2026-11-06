@@ -1,7 +1,7 @@
 //! The real decompiled battle (iterated fair-coin attrition) and the exact DP
 //! of it that the rollout policy reads instead of sampling.
 
-use crate::{Board, Rng};
+use crate::{Board, MAX_TURNS, Rng, WIN_NODES};
 
 /// Main DP table size; fights with a stack at or above this use the extension.
 const MAXS: usize = 160;
@@ -303,8 +303,13 @@ fn zeroed(len: usize) -> Option<Vec<f64>> {
 
 /// Tile side, in cells.
 const TILE: usize = 64;
-/// Tiles per side at most: stacks up to `2 + 64 * 64`, 8 MiB of edges.
-const MAX_TILES: usize = 64;
+/// The largest stack a game can build by the turn horizon: a dealt 8, then a
+/// full 23-node budget on one node every turn. A lockstep border, where
+/// neither side ever attacks, stalls rollouts at the horizon with stacks this
+/// high, so the tiles must reach it or each RED turn reruns the two-row DP.
+const HORIZON_STACK: usize = 8 + (WIN_NODES as usize - 1) * MAX_TURNS as usize;
+/// Tiles per side at most: stacks up to 6912, 23 MiB of edges.
+const MAX_TILES: usize = HORIZON_STACK / TILE + 1;
 
 type Cell = (f64, f64);
 
@@ -469,6 +474,8 @@ mod tests {
             x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             pairs.push((2 + (x >> 33) as usize % 1600, 1 + (x >> 13) as usize % 1600));
         }
+        // A lockstep border near the turn horizon (seed 1261).
+        pairs.push((4456, 4471));
         for (a, d) in pairs {
             let (p, s) = tiles.fold(a, d).unwrap();
             let (wp, ws) = two_row_dp(a, d).unwrap();
