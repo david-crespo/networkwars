@@ -109,7 +109,6 @@ export class Board {
   reviewColors: boolean
   pad: number
   dragTo: Point | null
-  topInset: number
   overrides: Map<number, { strength: number; owner?: Faction }>
   battle: { from: number; to: number; elapsed?: number; clear?: number[] } | null
   flashId: number | null
@@ -141,8 +140,6 @@ export class Board {
                                     // played move solid, the best dashed), not the play preview's gold
     this.pad = 38;                  // px kept clear around the board
     this.dragTo = null;             // {x,y} canvas pt: a drag-to-attack in progress from `selected`
-    this.topInset = 0;             // px at the top the layout must keep clear
-                                    // (e.g. the AI-progress badge overlays the canvas)
 
     // ---- transient state owned by the animations ----
     this.overrides = new Map();     // nodeId -> {strength, owner?} mid-battle
@@ -195,14 +192,13 @@ export class Board {
     const maxX = Math.max(...this.state.nodes.map(n => n.x)) || 1;
     const maxY = Math.max(...this.state.nodes.map(n => n.y)) || 1;
     const pad = this.pad;
-    // topInset shrinks the fit only when the centered board would reach under it;
-    // with vertical slack the max() leaves the board dead-centered as before.
-    // The inset protects the whole node (rim + halo + the tallest lift), not just its center.
-    const topPad = Math.max(pad, this.topInset + 30) + MAX_R * LIFT;
+    // The top also keeps room for the tallest node's lift, and the board is centered
+    // as it looks: from the tallest possible top face down to the bottom row's base.
+    const topPad = pad + MAX_R * LIFT;
     const s = Math.min((b.width - pad*2) / maxX, (b.height - topPad - pad) / maxY);
-    this.layout = { r: Math.min(s * 0.34, MAX_R), s,
-      ox: (b.width - maxX * s) / 2,
-      oy: Math.max(topPad, (b.height - maxY * s) / 2) };
+    const r = Math.min(s * 0.34, MAX_R);
+    this.layout = { r, s, ox: (b.width - maxX * s) / 2,
+      oy: Math.max(topPad, (b.height - maxY * s + r * LIFT) / 2) };
     this.positions = this.state.nodes.map(n => this.nodePos(n));
     this.draw();
   }

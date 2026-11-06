@@ -335,7 +335,7 @@ function renderHeader(active: Faction = 'red', nodes: NodeView[] | null = null) 
     const d = document.createElement('div');
     d.className = 'chip ' + f + (f === active ? ' cur' : '') + (c === 0 ? ' dead' : '');
     d.setAttribute('aria-label', `${f}: ${c} nodes${f === active ? ', current turn' : ''}`);
-    d.innerHTML = '<svg viewBox="0 0 34 34" aria-hidden="true"><polygon points="17,2 27.6,6.4 32,17 27.6,27.6 17,32 6.4,27.6 2,17 6.4,6.4"/></svg><b>' + c + '</b>';
+    d.textContent = String(c);
     h.appendChild(d);
   }
 }
@@ -358,18 +358,11 @@ function renderStrip() {
   if (!M) return;
   $('mgame').textContent = `Seed ${M.idx + 1}`;
   const s = stats();
-  $('tally').innerHTML = `<span class="y">You ${s.yw}–${s.yl}</span>`
-    + ` · <span class="a">AI ${s.aw}–${s.al}</span>`;
+  $('tally').innerHTML = `You <b>${s.yw}–${s.yl}</b><span class="sep"></span>AI <b>${s.aw}–${s.al}</b><i id="aidot"></i>`;
+  paintAiDot(aiBusy);
 }
 
-function resize() {
-  // The AI badge overlays the canvas top-right; keep the board clear of it so it
-  // never covers nodes on short viewports (the inset is a no-op when centering
-  // already leaves enough headroom).
-  const bd = $('aibadge');
-  board.topInset = bd.offsetTop + bd.offsetHeight + 6;
-  board.resize();
-}
+const resize = () => board.resize();
 window.addEventListener('resize', resize);
 window.addEventListener('resize', () => refreshSkill());
 if (window.ResizeObserver) new ResizeObserver(resize).observe($('board'));
@@ -380,10 +373,8 @@ if (window.ResizeObserver) new ResizeObserver(resize).observe($('board'));
 let aiBusy = false;
 const aiErr: Record<number, string> = {};   // seeds the AI could not play this session (transient)
 
-function paintBadge(nodes: NodeView[] | null, idle: boolean) {
-  $('aibadge').classList.toggle('idle', idle);
-  if (nodes) drawThumb($<HTMLCanvasElement>('aicv'), nodes);
-}
+// A pulsing dot beside the AI's score while it plays a seed in the background.
+const paintAiDot = (busy: boolean) => $('aidot')?.classList.toggle('on', busy);
 
 // The inspected/just-finished pair, then the newest dealt seed and its backlog.
 // Selection happens between complete moves, so history cannot hold up the pair
@@ -425,7 +416,7 @@ async function aiPump() {
     note('ai-idle');
     aiBusy = false;
     reviewer.setLanes(reviewer.workers);       // idle: background scoring may fan out
-    paintBadge(null, true);
+    paintAiDot(false);
   }
 }
 
@@ -449,9 +440,8 @@ async function aiPlaySeed(i: number) {
     s = mv.e ? await aiStep(`/api/game/${s.id}/end-turn`, 'POST')
       : await aiStep(`/api/game/${s.id}/attack`, 'POST', { from: mv.a[0], to: mv.a[1] });
   }
-  // Paint BEFORE the first search: its opening think can take seconds, and a badge
-  // reading "idle" while the AI is actually grinding is a lie.
-  paintBadge(s.nodes, false);
+  // Before the first search: its opening think can take seconds.
+  paintAiDot(true);
   for (let guard = 0; guard < 4000 && !s.over; guard++) {
     const t0 = performance.now();
     const res = await aiStep<SearchResult>(`/api/game/${s.id}/search`, 'POST', { sims: AI_SIMS });
@@ -468,9 +458,6 @@ async function aiPlaySeed(i: number) {
       s = await aiStep(`/api/game/${s.id}/attack`, 'POST', { from: b.from, to: b.to });
     }
     sampleHist(g, s);
-    // ambient badge: blurred+grey board. No seed/turn/win%/result readout —
-    // that would spoil the seed you're playing.
-    paintBadge(s.nodes, false);
     if (g.moves.length % 4 === 0) save();        // throttled: full-state write per move is wasteful
     if (!s.over && nextAiSeed() !== i) {
       note('ai-switch', { i, moves: g.moves.length });
@@ -686,7 +673,6 @@ $('bolt').onclick = () => {
   setInstant(!instant);
   try { localStorage.setItem('nwSpeed', instant ? 'instant' : 'fast'); } catch (_) {}
 };
-$('aibadge').onclick = () => showResults();
 
 // ============================ sweep-up ============================
 // Off-by-default assist (nwSweep toggle): after each of
@@ -1515,7 +1501,6 @@ async function resume() {
   thinkStart();                                  // restart the clock after the replay
 }
 
-paintBadge(null, true);
 // Straight into a game: no intro gate. A stored tally resumes where you left off,
 // otherwise the first seed is dealt immediately.
 const prev = load();

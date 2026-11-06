@@ -91,7 +91,7 @@ test('the board fits the Safari viewport without scrolling', async ({ page }, in
     return { x: el.scrollWidth - innerWidth, y: el.scrollHeight - innerHeight }
   })
   expect(overflow).toEqual({ x: 0, y: 0 })
-  for (const sel of ['#menu', '#mstrip', '#cv', '#bolt', '#endturn']) await inViewport(page, sel)
+  for (const sel of ['#menu', '#tally', '#chips', '#cv', '#bolt', '#endturn']) await inViewport(page, sel)
 
   // Every node, with its radius, is inside the canvas.
   const outside = await page.evaluate(() => {

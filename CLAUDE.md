@@ -83,9 +83,9 @@
         `engine.worker.ts` serves its inbox in order and aborts an in-flight search as
         soon as a request queues behind it, so a shared worker would let every tap you
         make truncate the AI's search and silently handicap it — corrupting the very
-        comparison the page exists to make. The AI's progress shows as a **blurred +
-        grayscale** thumbnail badge (ambient proof-of-work, no text; readable would spoil
-        the seed you're still on) — you never wait for it.
+        comparison the page exists to make. A dot beside the AI's score pulses
+        while it plays (nothing about its game, which would spoil the seed you're still
+        on) — you never wait for it.
         Because the seed pins board+dice, this removes the deal variance that dominates
         unpaired winrates (`sim-vs-real-deal-imbalance`, `hard-set-2026-07-02`). The
         tally panel is deliberately minimal — the two W-L score cards, the
