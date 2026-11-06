@@ -22,7 +22,21 @@ import argparse, glob, json, math, os, sys, time
 from multiprocessing import Pool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))
+
+
+def build_state(js):
+    """network_wars.State from a hard-set board (8-connectivity lattice)."""
+    from network_wars import State, Node
+    nodes = [Node(n['id'], n['col'], n['row'], n['owner'], n['strength']) for n in js['nodes']]
+    adj = [[] for _ in nodes]
+    for i, a in enumerate(nodes):
+        for j in range(i + 1, len(nodes)):
+            if abs(a.x - nodes[j].x) <= 1 and abs(a.y - nodes[j].y) <= 1:
+                adj[i].append(j)
+                adj[j].append(i)
+    s = State()
+    s.nodes, s.adj, s.links = nodes, adj, []
+    return s
 
 
 def load_band(path, band, low, high):
@@ -52,7 +66,6 @@ def run_chunk(arg):
     from network_wars import (HUMAN, BOTS, check_winner, counts, reinforce,
                               run_bot_turn, resolve_battle)
     import fastnw
-    import nwmove_fast as NWM
     if value_stop:
         fastnw.set_value_stop(*value_stop[:3], int(value_stop[3]))
     if deepthink:
@@ -60,7 +73,7 @@ def run_chunk(arg):
 
     out = []
     for board, key, sd in items:
-        st = NWM.build_state(board)
+        st = build_state(board)
         st.mb = sd & 0xFFFFFFFF
         st.policy_rng = nw.make_rng((sd ^ 0x9E3779B9) & 0xFFFFFFFF)
         fastnw.set_topology(st)

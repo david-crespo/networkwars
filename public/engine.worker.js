@@ -1,7 +1,7 @@
 // In-browser game server — the SAME C engine the solver uses, compiled to WASM and
-// run in a Web Worker so the 6000-sim C-UCT search never blocks the UI. Direct port
-// of solver/server.py: it holds game state and sequences C-engine calls, building
-// the exact same view/log/events/search JSON the page already speaks. No game
+// run in a Web Worker so the 6000-sim C-UCT search never blocks the UI. It holds
+// game state and sequences C-engine calls, building the view/log/events/search
+// JSON the page speaks. No game
 // logic lives here — board-gen, the four bots, the fair-coin-attrition battle, reinforcement
 // and the search are all in fast_engine.c (via fastnw.js). The frontend is now fully
 // self-contained: no HTTP API, no Python.
@@ -53,7 +53,7 @@ function newGame(seed, persist = true, rules = RULES_VERSION) {
 }
 
 // Start a game from an externally-parsed board (list of {id,x,y,owner,strength}).
-// Adjacency = 8-connectivity over (x,y), matching the iOS-parse path in server.py.
+// Adjacency = 8-connectivity over (x,y), the engine's lattice.
 function gameFromBoard(boardNodes, mbSeed) {
   if (!Array.isArray(boardNodes) || !boardNodes.length || boardNodes.length > MAXN)
     throw new Error('invalid board size');
@@ -247,7 +247,7 @@ function doSweepCheck(g, trials, maxLosses) {
     move: E.sweepMove(g.owner, g.strength) };   // null = no attack left, end turn
 }
 
-// ---- message dispatch: mirrors server.py's HTTP routes ----
+// ---- message dispatch: HTTP-style routes over postMessage ----
 function route(path, method, body) {
   const q = path.indexOf('?');
   if (q >= 0) path = path.slice(0, q);
@@ -292,10 +292,8 @@ function route(path, method, body) {
       body.maxLosses != null ? body.maxLosses | 0 : 0);
   }
 
-  // Loading a saved board from the iOS workflow: the caller fetches the file text
-  // (server-only) and hands us its nodes here so the WASM engine builds the game.
-  // (No shipped page drives this since the free-play page was removed 2026-08-14;
-  // kept for the /grab-/load tooling path.)
+  // Start from a given board. No page drives this; solver/rules_worker_gate.mjs
+  // uses it to set up test positions.
   if (path === '/load-board' && method === 'POST') return view(gameFromBoard(body.nodes, body.mb));
 
   return { error: 'not found', _status: 404 };

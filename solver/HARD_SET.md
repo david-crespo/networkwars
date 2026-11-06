@@ -6,7 +6,7 @@ where search actually has leverage.
 
 ## Part 1 — the instrument
 
-`solver/iphone_data/hard_set.py` harvests every clean, standard, deduped
+`hard_set.py` (removed with the iOS tooling; in git history) harvested every clean, standard, deduped
 round-0 opening that lost in a live series (all `runs/series_*.jsonl` +
 `loop_series.jsonl`), then re-scores each offline with K fresh dice seeds
 (same engine, private sim stream, no seed exploitation):
@@ -18,7 +18,7 @@ The winnable% splits the set into **dice-bound** (<40%), **contested**
 dice/OCR/execution one-off, not the opening). `--min-sims` uses the adaptive
 visit-margin stop (move-identical to the fixed budget, ~2.5x cheaper).
 
-`solver/iphone_data/hard_ab.py` replays a band with the same (board, seed)
+`solver/hard_ab.py` replays a band with the same (board, seed)
 pairs under one engine config per run and compares arms PAIRED (McNemar z on
 discordant pairs) — small real effects stay visible through battle-dice noise.
 Engine-code variants are selected with `NW_ENGINE_SO=…`; exposed levers are

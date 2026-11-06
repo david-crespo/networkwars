@@ -23,8 +23,7 @@ bots, battle, reinforcement, win check, **and the search-based AI** — is one C
 | `solver/fast_engine.c` | **The single source of truth.** All rules + board generation + the iOS-faithful deal + the four bots + the decompiled fair-coin battle + reinforcement + the open-loop **C-UCT MCTS** (no neural net). |
 | `public/` | The **serverless browser game.** `fast_engine.c` compiled to WASM (`fast_engine.js`) runs the whole engine + search in a Web Worker; `index.html` is just the UI. No backend needed. |
 | `solver/fmcts.py`, `solver/par_eval.py` | Headless self-play / parallel winrate evals (thin ctypes clients over the C engine). |
-| `solver/server.py` | Optional stdlib HTTP server. Only needed for the live iOS `/grab` workflow — offline play needs no Python. |
-| `solver/iphone_data/` | Capture, parse, and play the **real iOS app** via macOS iPhone Mirroring, and run live game series. |
+| `solver/hard_ab.py` | Paired A/B of engine configs over the hard set of openings lost in live play (`solver/HARD_SET.md`). |
 
 ## Docs
 
@@ -33,7 +32,6 @@ bots, battle, reinforcement, win check, **and the search-based AI** — is one C
   fixes, remaining approximations, and saved-game compatibility.
 - **[`solver/README.md`](solver/README.md)** — the engine + solver in depth.
 - **[`solver/REAL_BATTLE_DECOMPILED.md`](solver/REAL_BATTLE_DECOMPILED.md)** / **[`solver/MAP_DEAL_DECOMPILED.md`](solver/MAP_DEAL_DECOMPILED.md)** — battle and deal recovered bit-exact from the shipped iOS app.
-- **[`solver/iphone_data/README.md`](solver/iphone_data/README.md)** — driving the real app.
 - **[`CLAUDE.md`](CLAUDE.md)** — project conventions.
 
 ## Quickstart

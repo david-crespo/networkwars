@@ -1,12 +1,5 @@
 # Network Wars — project instructions
 
-## Gameplay policy
-- **Never surrender.** When driving the real game (iOS mirroring or otherwise),
-  play every game out to its natural terminal (a faction reaching 24 nodes). A
-  losing or partial game is more valuable played to the end than forfeited —
-  keep partial-game data, do not Surrender to reset. Restart only via the
-  post-game (win/loss) modal's New Game / Play Again button.
-
 ## Engine (one C source of truth; pure MCTS — RL/neural-net path was removed)
 - **Rules audit (2026-09-07):** `solver/RULES_AUDIT.md` records the current comparison
   against original ARM64. New games use recovered large-army single/pair/triple
@@ -35,13 +28,12 @@
   regression-gated in `validate_fast.py`). Everything else is a thin client over it:
   - `solver/fastnw.py` — ctypes client (marshals int32 arrays; implements no rules).
   - `solver/network_wars.py` — a readable State/Node shim that delegates every rule
-    to the C engine, so the `iphone_data/` analysis tooling keeps its object API.
+    to the C engine, so the Python analysis tooling keeps an object API.
   - `public/` — the **self-contained WASM frontend**: `fast_engine.c` is compiled to
     WASM (`public/fast_engine.js`, single-file ESM, wasm embedded) and runs IN THE
     BROWSER inside a Web Worker. `public/fastnw.js` is the JS marshalling layer (port
-    of `fastnw.py`); `public/engine.worker.js` is the game/orchestration layer (port
-    of `server.py`'s handlers) — it holds game state and speaks the same `/api/game/*`
-    contract via postMessage, so `index.html` needs no server to play. Search runs
+    of `fastnw.py`); `public/engine.worker.js` is the game/orchestration layer — it
+    holds game state and speaks the `/api/game/*` contract via postMessage, so `index.html` needs no server to play. Search runs
     in the worker so the UI never blocks (adaptive budget: floor ~2000 sims, ceiling
     ~150k, visit-margin early stop — see memory `adaptive-sims`).
     Its `updateWinner` ends the game on **any of**: a faction at 24, one faction left,
@@ -54,8 +46,7 @@
     `public/board.js` is the board renderer + battle/bot-turn animation
     (octagon nodes, coin-flip replay, reinforce flashes) — the one place the game's
     look lives; the page imports it and never draws its own board.
-    One page, pure-static (`server.py` also still routes the old extensionless
-    `/head-to-head` paths to it; the free-play page was removed 2026-08-14 and lives
+    One page, pure-static (the free-play page was removed 2026-08-14 and lives
     in git history):
       - `sw.js` — **offline, no UI**: the page is fetched network-first (a 3 s stall
         serves the cached copy) and `assets/<hash>/` cache-first, one cache per release.
@@ -216,11 +207,9 @@
     (more nodes than all bots combined — median offer 16 RED nodes vs 15 under the
     old plain-lead rule), and shows it in the footer in place of the status line so
     it never covers the board.
-  - `solver/server.py` — now OPTIONAL: it serves `public/` static assets and is only
-    needed for the iOS `/grab` and `/load` board-import endpoints (live iPhone
-    Mirroring; the old server-side `/api/game/*` is gone). Pure offline play needs
-    no Python — serve `public/` with any static server (`cd public && python3 -m
-    http.server`) or open via the server.
+  - Deploy: `wrangler.jsonc` serves `solver/build_site.py`'s `_site/` as an
+    assets-only Cloudflare Worker (`npm run deploy`). Locally, serve `public/` with
+    any static server (`cd public && python3 -m http.server`).
   There is no JS rules engine — board-gen, bots, battle, reinforce, and search are all
   the one C source. Regression gates: `solver/validate_fast.py` (native, board/deal/
   battle invariants over 1000 seeds + frozen golden-seed outcomes) and
@@ -263,7 +252,7 @@
   rebuild; **bit-identical play**, ~3% faster; falls back to the plain one-liner
   `cc -O3 -ffast-math -shared -fPIC solver/fast_engine.c -o solver/fast_engine.so`
   if llvm-profdata is missing), then `solver/fmcts.py` (or `solver/par_eval.py` for
-  parallel winrate evals), or `solver/server.py` to play in a browser. WASM build (for
+  parallel winrate evals). WASM build (for
   the in-browser engine; NOTE: **no `-ffast-math`** — it breaks cross-arch board-gen
   bit-parity, and the search doesn't need it): run `solver/build_wasm.sh` (emcc
   single-file ESM → `public/fast_engine.js`), then validate with `python3
@@ -273,9 +262,3 @@
   87.5–97.2%), matching offline at the same C-UCT config (memory
   `sim-real-gap-closed-2026-06-29`, supersedes the old ~77–81% plateau). Most of the
   few losses are early dice-snowballs, not search errors.
-
-## Driving the real iOS app
-- `solver/iphone_data/` captures/parses/taps the real app via macOS iPhone Mirroring.
-- `series.py` runs a series of live games with the C-UCT engine and logs a rich
-  JSONL (full trajectory + per-move win expectation + algo config). It never
-  surrenders (see policy above).

@@ -125,10 +125,8 @@ their boards and dice are preserved. The version is stored with each new round.
   Worker (`engine.worker.js`, which holds game state and speaks the `/api/game/*` contract
   over postMessage); `index.html` is just canvas rendering and input. **No backend needed**
   — serve `public/` statically. Seeded mulberry32 per game for reproducibility.
-- **Server (optional)**: `solver/server.py` — stdlib `http.server`, drives the native engine
-  via ctypes. Only used for the live iOS `/grab` workflow; the browser game does not need it.
 
-### Game API (postMessage in the browser; HTTP on the optional server)
+### Game API (postMessage to the engine worker)
 
 | Path                       | Body                  | Effect |
 |----------------------------|-----------------------|--------|

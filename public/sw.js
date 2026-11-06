@@ -49,7 +49,7 @@ self.addEventListener('fetch', (event) => {
   const release = url.pathname.match(/\/assets\/([0-9a-f]{16})\//);
   if (release) return event.respondWith(fromRelease(req, releaseCache(release[1])));
   const navigate = req.mode === 'navigate';
-  if (!navigate && !/\.(js|svg|html)$/.test(url.pathname)) return;   // e.g. server.py's /grab
+  if (!navigate && !/\.(js|svg|html)$/.test(url.pathname)) return;
   event.respondWith(networkFirst(event, url.origin + url.pathname, navigate));
 });
 

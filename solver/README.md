@@ -24,7 +24,7 @@ in this document predate the placement correction.
 - **`fastnw.py`** — thin ctypes client: marshals `(owner, strength)` int32 arrays
   in/out, exposes `new_game`, the rule primitives, and `uct_search`. No rules here.
 - **`network_wars.py`** — a readable `State`/`Node` shim that delegates every rule
-  to the C engine, so the `iphone_data/` analysis tools keep a convenient object API.
+  to the C engine, so the Python analysis tools keep a convenient object API.
 - **`validate_fast.py`** — the native regression gate: board/deal/battle invariants
   over 1000 seeds + frozen golden-seed game outcomes. **`validate_wasm.py`** is the
   sibling WASM gate (board-gen bit-parity vs native + battle/survivor mean+variance
@@ -42,26 +42,19 @@ uv run python par_eval.py --games 1000 --sims 8000 --workers 9 # parallel winrat
 ```
 
 To play in a browser, serve `../public/` statically — the engine runs in-browser as
-WASM, no Python needed (`cd ../public && python3 -m http.server`). `server.py` is only
-for the live iOS `/grab` workflow.
+WASM, no Python needed (`cd ../public && python3 -m http.server`).
 
 - **`fmcts.py`** — plans with the C UCT search but applies each move to the *real*
   seeded game (via the `network_wars` shim), so outcomes are genuine — the search
   never sees the game seed. Best config (baked into the engine): ranked C1 rollout,
   `c_puct=2.5`, `sims=1600–3200`.
 - **`par_eval.py`** — splits seeds across processes for fast winrate evals.
-- **`server.py`** — OPTIONAL stdlib HTTP server. The browser game is serverless WASM
-  (see `../public/`); this only serves `public/` and the iOS `/grab`/`/load`
-  endpoints that pull a live iOS-mirrored board into a new game.
+- **`hard_ab.py`** — paired-seed A/B of engine configs over `hard_set.jsonl`, the
+  openings lost in live play (see `HARD_SET.md`).
 
 The single win% readout (live dashboard + JSONL) is **`winexp`** — the search's own
 backed-up Q of the chosen move. It falls out of the MCTS (no separate calibration
 model) and tracks real outcomes at AUC ~0.955.
-
-## Driving the real iOS app
-
-`iphone_data/` captures/parses/taps the real app via macOS iPhone Mirroring and runs
-live game series with the C-UCT engine. See `iphone_data/README.md`.
 
 Deps are managed with `uv` (`pyproject.toml` / `uv.lock`); the only runtime
 dependency is `numpy<2`. `fast_engine.so` is gitignored — rebuild with the `cc` line.

@@ -8,8 +8,7 @@ the C engine via fastnw. There is no second rules implementation.
 Both real-app mechanics live in the C engine: the iOS deal (every faction totals
 20, 4 fixed templates; solver/MAP_DEAL_DECOMPILED.md) and the battle — iterated
 fair-coin attrition, decompiled bit-exact from the shipped IPA
-(solver/REAL_BATTLE_DECOMPILED.md). The browser talks to this same C engine over
-HTTP via solver/server.py.
+(solver/REAL_BATTLE_DECOMPILED.md). The browser runs this same C engine as WASM.
 """
 import fastnw
 
