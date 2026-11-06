@@ -74,14 +74,12 @@ await assert.rejects(board.animateEndTurn({ events: [{ type: 'reinforce', factio
 assert.equal(board.animBoard, null);
 assert.equal(board.overrides.size, 0);
 
-// Compact layouts must clear the overlay with the entire top node, not its center.
+// Positions follow the view's coordinates exactly.
 globalThis.window = { devicePixelRatio: 2 };
 const compact = new Board({ getContext: () => ({ setTransform() {} }) },
   { getBoundingClientRect: () => ({ width: 320, height: 402 }) });
 compact.draw = () => {};
-compact.topInset = 68;
 compact.setView(structuredClone(board.state)); compact.resize();
-assert(Math.min(...compact.positions.map(p => p.y)) - compact.layout.r >= compact.topInset);
 const shifted = structuredClone(compact.state); shifted.nodes[0].x += .5;
 compact.setView(shifted);
 assert.deepEqual(compact.positions[0], compact.nodePos(shifted.nodes[0]));

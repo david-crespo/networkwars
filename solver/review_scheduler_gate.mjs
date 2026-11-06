@@ -146,7 +146,7 @@ const played = [], lanes = [];
 const pumpCtx = vm.createContext({ console: { warn() {} }, note() {}, reportError() {}, errMsg: String,
   M: { rounds: [], idx: 0 }, aiBusy: false, aiErr: {},
   seedPanelOn: () => false, sdIdx: 0,
-  paintBadge: () => {},
+  paintAiDot: () => {},
   reviewer: { workers: 6, setLanes: (n) => lanes.push(n) },
   aiPlaySeed: async (i) => {
     played.push(i);
@@ -210,7 +210,7 @@ const loopCtx = vm.createContext({
   },
   sampleHist: (g, s) => g.hist.push(s.turn),
   recordEnd: (g, s) => { assert(s.over); g.result = 'won'; },
-  paintBadge() {}, save() {}, renderStrip() {}, refreshSeedPanel() {},
+  paintAiDot() {}, save() {}, renderStrip() {}, refreshSeedPanel() {},
   sleep: tick,
 });
 vm.runInContext(await pageSlice('async function aiPlaySeed(', '// ============================ your play'), loopCtx);
