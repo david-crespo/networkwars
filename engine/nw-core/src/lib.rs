@@ -36,10 +36,13 @@ pub type Faction = u8;
 pub const RED: Faction = 0;
 
 /// Ownership and army counts. Only the first `topology.n()` entries are live.
+/// `owned[f]` is the set of `f`'s nodes as a bitmask; change `owner` only
+/// through [`Board::set_owner`] so the two agree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Board {
     pub owner: [Faction; MAXN],
     pub strength: [i32; MAXN],
+    owned: [u64; NF],
 }
 
 impl Default for Board {
@@ -52,12 +55,13 @@ impl Board {
     pub const EMPTY: Board = Board {
         owner: [0; MAXN],
         strength: [0; MAXN],
+        owned: [0; NF],
     };
 
     pub fn from_slices(owner: &[i32], strength: &[i32]) -> Board {
         let mut b = Board::EMPTY;
-        for (dst, &src) in b.owner.iter_mut().zip(owner) {
-            *dst = src as Faction;
+        for (i, &f) in owner.iter().enumerate() {
+            b.set_owner(i, f as Faction);
         }
         b.strength[..strength.len()].copy_from_slice(strength);
         b
@@ -70,6 +74,35 @@ impl Board {
         let n = strength.len();
         strength.copy_from_slice(&self.strength[..n]);
     }
+
+    #[inline(always)]
+    pub fn set_owner(&mut self, i: usize, f: Faction) {
+        if let Some(m) = self.owned.get_mut(self.owner[i] as usize) {
+            *m &= !(1 << i);
+        }
+        self.owner[i] = f;
+        if let Some(m) = self.owned.get_mut(f as usize) {
+            *m |= 1 << i;
+        }
+    }
+
+    /// `f`'s nodes as a bitmask.
+    #[inline(always)]
+    pub fn owned(&self, f: Faction) -> u64 {
+        self.owned[f as usize]
+    }
+}
+
+/// The set bits of `mask`, lowest first.
+#[inline(always)]
+pub fn bits(mut mask: u64) -> impl Iterator<Item = usize> {
+    std::iter::from_fn(move || {
+        (mask != 0).then(|| {
+            let i = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            i
+        })
+    })
 }
 
 /// A RED action: attack `from -> to`, or end the turn. Packed as the C engine

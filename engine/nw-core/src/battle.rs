@@ -41,7 +41,7 @@ fn fight(rng: &mut impl Rng, mut a: i32, mut d: i32, mut hit: impl FnMut(bool)) 
 fn settle(board: &mut Board, from: usize, to: usize, a: i32, d: i32) -> bool {
     let captured = a > 1 && d == 0;
     if captured {
-        board.owner[to] = board.owner[from];
+        board.set_owner(to, board.owner[from]);
         board.strength[to] = a - 1;
     } else {
         board.strength[to] = d;

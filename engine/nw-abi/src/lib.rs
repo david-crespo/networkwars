@@ -286,7 +286,7 @@ pub unsafe extern "C" fn bot_turn_begin(
 ) {
     with_engine(|e| unsafe {
         let board = read_board(e, owner, strength);
-        let cursor = BotCursor::begin(&e.topo, &board, faction as u8);
+        let cursor = BotCursor::begin(&board, faction as u8);
         let st = slice::from_raw_parts_mut(st, BOT_STATE_LEN);
         st[0] = cursor.count as c_int;
         st[1] = 0;

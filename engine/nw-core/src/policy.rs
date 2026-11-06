@@ -2,8 +2,8 @@
 //! policy with its Monte-Carlo certificate.
 
 use crate::{
-    Action, Board, CapTables, MAX_TURNS, MAXN, NF, RED, Rng, Topology, WIN_NODES, check_winner, end_turn,
-    reinforce, resolve_battle, run_bot_turn,
+    Action, Board, CapTables, MAX_TURNS, MAXN, NF, RED, Rng, Topology, WIN_NODES, bits, check_winner,
+    end_turn, reinforce, resolve_battle, run_bot_turn,
 };
 
 /// The C1 weight vector, baked in.
@@ -40,48 +40,68 @@ const RW: RankWeights = RankWeights {
     threshold: 220.775,
 };
 
-/// RED's connected components: `label[i]` for red nodes, and the largest.
+/// RED's connected components: `label[i]` for red nodes, each label's node
+/// set, and the largest (ties go to the one with the lowest node id).
 struct RedComponents {
-    label: [i8; MAXN],
-    largest: i8,
+    label: [u8; MAXN],
+    members: [u64; MAXN],
+    n_labels: usize,
+    largest: u8,
 }
 
 impl RedComponents {
     fn new(topo: &Topology, board: &Board) -> RedComponents {
-        let mut label = [-1i8; MAXN];
-        let mut sizes = [0u8; MAXN];
-        let mut stack = [0u8; MAXN];
-        let mut n_labels = 0;
-        for s in topo.nodes() {
-            if board.owner[s] != RED || label[s] != -1 {
-                continue;
-            }
-            let (mut top, mut size) = (0, 0);
-            stack[top] = s as u8;
-            top += 1;
-            label[s] = n_labels;
-            while top > 0 {
-                top -= 1;
-                let node = stack[top] as usize;
-                size += 1;
-                for j in topo.neighbors(node) {
-                    if board.owner[j] == RED && label[j] == -1 {
-                        label[j] = n_labels;
-                        stack[top] = j as u8;
-                        top += 1;
-                    }
-                }
-            }
-            sizes[n_labels as usize] = size;
-            n_labels += 1;
+        let mut comps = RedComponents {
+            label: [u8::MAX; MAXN],
+            members: [0; MAXN],
+            n_labels: 0,
+            largest: u8::MAX,
+        };
+        let mut rest = board.owned(RED);
+        while rest != 0 {
+            let component = topo.flood(rest.trailing_zeros() as usize, rest);
+            rest &= !component;
+            comps.set(comps.n_labels as u8, component);
+            comps.n_labels += 1;
         }
-        let mut largest = -1i8;
-        for l in 0..n_labels {
-            if largest == -1 || sizes[l as usize] > sizes[largest as usize] {
-                largest = l;
+        comps.find_largest();
+        comps
+    }
+
+    fn set(&mut self, l: u8, component: u64) {
+        self.members[l as usize] = component;
+        for i in bits(component) {
+            self.label[i] = l;
+        }
+    }
+
+    fn find_largest(&mut self) {
+        let mut best = (0, u32::MAX);
+        for l in 0..self.n_labels {
+            let m = self.members[l];
+            let key = (m.count_ones(), m.trailing_zeros());
+            if m != 0 && (key.0 > best.0 || key.0 == best.0 && key.1 < best.1) {
+                best = key;
+                self.largest = l as u8;
             }
         }
-        RedComponents { label, largest }
+    }
+
+    /// RED just captured `to`: it joins every component next to it. Exact only
+    /// on a symmetric topology, where components are the connected ones.
+    fn absorb(&mut self, topo: &Topology, board: &Board, to: usize) {
+        let mut merged = 1u64 << to;
+        let mut keep = self.n_labels as u8;
+        for i in bits(topo.neighbor_mask(to) & board.owned(RED) & !(1 << to)) {
+            let l = self.label[i];
+            merged |= std::mem::take(&mut self.members[l as usize]);
+            keep = keep.min(l);
+        }
+        if keep as usize == self.n_labels {
+            self.n_labels += 1;
+        }
+        self.set(keep, merged);
+        self.find_largest();
     }
 }
 
@@ -106,8 +126,8 @@ fn ranked_score(
     let mut touched = 0u64;
     let (mut merge_count, mut red_adj, mut touches_largest) = (0i32, 0i32, false);
     let mut exposure = 0.0;
-    let mut touch = |label: i8| {
-        if label >= 0 && touched & (1 << label) == 0 {
+    let mut touch = |label: u8| {
+        if label != u8::MAX && touched & (1 << label) == 0 {
             touched |= 1 << label;
             merge_count += 1;
             if label == comps.largest {
@@ -154,16 +174,17 @@ fn ranked_score(
     score
 }
 
-/// The best ranked RED move (deterministic argmax), or END if nothing beats
-/// the stop threshold.
 pub fn ranked_best_move(topo: &Topology, tables: &mut CapTables, board: &Board) -> Action {
+    best_move_with(topo, tables, board, &RedComponents::new(topo, board))
+}
+
+fn best_move_with(topo: &Topology, tables: &mut CapTables, board: &Board, comps: &RedComponents) -> Action {
     let c = topo.counts(board);
-    let comps = RedComponents::new(topo, board);
     let mut best_action = Action::END;
     let mut best = RW.threshold;
-    for from in topo.nodes() {
+    for from in bits(board.owned(RED)) {
         let fs = board.strength[from];
-        if board.owner[from] != RED || fs <= 1 {
+        if fs <= 1 || !topo.on_border(board, from, RED) {
             continue;
         }
         let source = match tables.source_log.get(fs as usize) {
@@ -174,7 +195,7 @@ pub fn ranked_best_move(topo: &Topology, tables: &mut CapTables, board: &Board) 
             if board.owner[to] == RED {
                 continue;
             }
-            let s = ranked_score(topo, tables, board, &c, &comps, from, to, source);
+            let s = ranked_score(topo, tables, board, &c, comps, from, to, source);
             if s > best {
                 best = s;
                 best_action = Action::attack(from, to);
@@ -199,17 +220,26 @@ pub fn rollout(
         if let Some(won) = red_won(&board) {
             return won;
         }
-        if topo.counts(&board)[RED as usize] == 0 {
+        if board.owned(RED) == 0 {
             return false;
         }
+        // A repel changes no owner, so the components only change on a capture.
+        let mut comps = RedComponents::new(topo, &board);
         for _ in 0..200 {
-            let Some((from, to)) = ranked_best_move(topo, tables, &board).target() else {
+            let Some((from, to)) = best_move_with(topo, tables, &board, &comps).target() else {
                 break;
             };
             resolve_battle(rng, &mut board, from, to);
             // Only a capture can change the winner.
-            if board.owner[to] == RED && check_winner(topo, &board).is_some() {
-                break;
+            if board.owner[to] == RED {
+                if check_winner(topo, &board).is_some() {
+                    break;
+                }
+                if topo.symmetric() {
+                    comps.absorb(topo, &board, to);
+                } else {
+                    comps = RedComponents::new(topo, &board);
+                }
             }
         }
         if let Some(won) = red_won(&board) {
@@ -239,9 +269,9 @@ pub fn rollout(
 /// enemy, bigger margin breaking ties; END if there is none.
 pub fn sweep_best_move(topo: &Topology, board: &Board) -> Action {
     let mut best: Option<(Action, i32, i32)> = None;
-    for i in topo.nodes() {
+    for i in bits(board.owned(RED)) {
         let a = board.strength[i];
-        if board.owner[i] != RED || a < 2 {
+        if a < 2 {
             continue;
         }
         for j in topo.neighbors(i) {

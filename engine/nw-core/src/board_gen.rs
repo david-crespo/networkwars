@@ -132,7 +132,7 @@ pub fn generate(rng: &mut Mulberry32, rules: RulesVersion) -> GeneratedGame {
         if let Some((owner, strength)) = owner_strength {
             let mut board = Board::EMPTY;
             for i in topology.nodes() {
-                board.owner[i] = owner[i] as Faction;
+                board.set_owner(i, owner[i] as Faction);
                 board.strength[i] = strength[i];
             }
             return GeneratedGame {

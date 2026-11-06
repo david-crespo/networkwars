@@ -1,7 +1,7 @@
 //! Adjacency in CSR form. Neighbor order matters: bots and the search break
 //! ties by it, so it must match the C engine's append order exactly.
 
-use crate::{Board, Faction, MAXN, NF};
+use crate::{Board, Faction, MAXN, NF, bits};
 use std::ops::Range;
 
 pub const MAX_EDGES: usize = MAXN * 8;
@@ -11,6 +11,10 @@ pub struct Topology {
     n: usize,
     off: [u16; MAXN + 1],
     adj: [u8; MAX_EDGES],
+    /// `adj` as one bitmask per node, for set questions (order-free).
+    mask: [u64; MAXN],
+    /// Every link is listed from both ends (always true of generated maps).
+    symmetric: bool,
 }
 
 impl Default for Topology {
@@ -19,6 +23,8 @@ impl Default for Topology {
             n: 0,
             off: [0; MAXN + 1],
             adj: [0; MAX_EDGES],
+            mask: [0; MAXN],
+            symmetric: true,
         }
     }
 }
@@ -36,7 +42,20 @@ impl Topology {
         for (dst, &src) in t.adj.iter_mut().zip(&adj[..off[n] as usize]) {
             *dst = src as u8;
         }
+        t.build_masks();
         t
+    }
+
+    fn build_masks(&mut self) {
+        for i in 0..self.n {
+            self.mask[i] = self.neighbors(i).fold(0, |m, j| m | 1 << j);
+        }
+        self.symmetric = (0..self.n).all(|i| bits(self.mask[i]).all(|j| self.mask[j] & 1 << i != 0));
+    }
+
+    #[inline(always)]
+    pub fn symmetric(&self) -> bool {
+        self.symmetric
     }
 
     /// From per-node neighbor lists, in order.
@@ -54,6 +73,7 @@ impl Topology {
             }
         }
         t.off[lists.len()] = k as u16;
+        t.build_masks();
         t
     }
 
@@ -87,18 +107,35 @@ impl Topology {
             .flat_map(move |i| self.neighbors(i).filter(move |&j| i < j).map(move |j| (i, j)))
     }
 
+    /// The neighbors of `i` as a bitmask.
+    #[inline(always)]
+    pub fn neighbor_mask(&self, i: usize) -> u64 {
+        self.mask[i]
+    }
+
     #[inline]
     pub fn counts(&self, board: &Board) -> [i32; NF] {
-        let mut c = [0; NF];
-        for &f in &board.owner[..self.n] {
-            c[f as usize] += 1;
-        }
-        c
+        std::array::from_fn(|f| board.owned(f as Faction).count_ones() as i32)
     }
 
     /// Does any neighbor of `i` belong to someone other than `faction`?
-    #[inline]
+    #[inline(always)]
     pub fn on_border(&self, board: &Board, i: usize, faction: Faction) -> bool {
-        self.neighbors(i).any(|j| board.owner[j] != faction)
+        self.mask[i] & !board.owned(faction) != 0
+    }
+
+    /// The nodes reachable from `start` through `within` (which holds `start`).
+    #[inline]
+    pub fn flood(&self, start: usize, within: u64) -> u64 {
+        let (mut reached, mut frontier) = (1u64 << start, 1u64 << start);
+        while frontier != 0 {
+            let mut next = 0;
+            for i in bits(frontier) {
+                next |= self.mask[i];
+            }
+            frontier = next & within & !reached;
+            reached |= frontier;
+        }
+        reached
     }
 }

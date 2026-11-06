@@ -10,8 +10,8 @@
 //! the current simulation's board.
 
 use crate::{
-    Action, Board, CapTables, MAX_TURNS, MAXN, RED, Rng, Topology, end_turn, resolve_battle, rollout,
-    winner_from_counts,
+    Action, Board, CapTables, MAX_TURNS, MAXN, RED, Rng, Topology, bits, end_turn, resolve_battle,
+    rollout, winner_from_counts,
 };
 
 /// Directed edges plus END.
@@ -148,8 +148,8 @@ pub struct Search {
 /// RED's legal actions on `board` (attacks in node/adjacency order, then END).
 fn legal_red(topo: &Topology, board: &Board, out: &mut [Action; MAXCHILD]) -> usize {
     let mut n = 0;
-    for i in topo.nodes() {
-        if board.owner[i] != RED || board.strength[i] <= 1 {
+    for i in bits(board.owned(RED)) {
+        if board.strength[i] <= 1 {
             continue;
         }
         for j in topo.neighbors(i) {

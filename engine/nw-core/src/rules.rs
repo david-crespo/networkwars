@@ -1,6 +1,6 @@
 //! Win check, the decompiled bot turn, reinforcement, and end of turn.
 
-use crate::{Board, Faction, MAXN, NF, RED, Rng, Topology, WIN_NODES, resolve_battle};
+use crate::{Board, Faction, MAXN, NF, RED, Rng, Topology, WIN_NODES, bits, resolve_battle};
 
 /// A faction at 24 nodes wins, as does the last faction standing.
 #[inline]
@@ -34,6 +34,9 @@ pub fn attack_legal(topo: &Topology, board: &Board, from: usize, to: usize) -> b
 
 /// Smallest adjacent enemy of `node` (first found wins ties).
 fn smallest_adjacent_enemy(topo: &Topology, board: &Board, node: usize, faction: Faction) -> Option<usize> {
+    if !topo.on_border(board, node, faction) {
+        return None;
+    }
     let mut best: Option<usize> = None;
     for j in topo.neighbors(node) {
         if board.owner[j] == faction {
@@ -68,15 +71,21 @@ pub struct BotCursor {
 }
 
 impl BotCursor {
-    pub fn begin(topo: &Topology, board: &Board, faction: Faction) -> BotCursor {
-        let mut islands = [0u8; MAXN];
+    pub fn begin(board: &Board, faction: Faction) -> BotCursor {
+        // Strongest first, equal strengths in node-id order: sort the unique
+        // keys (strength, -id) descending.
+        let mut keys = [0u64; MAXN];
         let mut count = 0;
-        for i in topo.nodes().filter(|&i| board.owner[i] == faction) {
-            islands[count] = i as u8;
+        for i in bits(board.owned(faction)) {
+            let s = (board.strength[i] as u32 ^ 1 << 31) as u64; // order-preserving
+            keys[count] = s << 8 | (MAXN - 1 - i) as u64;
             count += 1;
         }
-        // Stable, so equal strengths stay in node-id order.
-        islands[..count].sort_by_key(|&i| std::cmp::Reverse(board.strength[i as usize]));
+        keys[..count].sort_unstable_by(|a, b| b.cmp(a));
+        let mut islands = [0u8; MAXN];
+        for (dst, &k) in islands.iter_mut().zip(&keys[..count]) {
+            *dst = (MAXN - 1 - (k & 0xFF) as usize) as u8;
+        }
         BotCursor {
             faction,
             islands,
@@ -91,7 +100,9 @@ impl BotCursor {
     pub fn next_attack(&mut self, topo: &Topology, board: &Board) -> Option<(usize, usize)> {
         let faction = self.faction;
         // After a capture the chain continues from the stack that moved.
+        // A stack below 2 can't attack, so it needs no target search.
         if let Some(cur) = self.chain.take().filter(|&c| board.owner[c] == faction)
+            && board.strength[cur] >= 2
             && let Some(tgt) = smallest_adjacent_enemy(topo, board, cur, faction)
             && ok_attack(board, cur, tgt)
         {
@@ -101,7 +112,8 @@ impl BotCursor {
         while self.next < self.count {
             let island = self.islands[self.next] as usize;
             self.next += 1;
-            if let Some(tgt) = smallest_adjacent_enemy(topo, board, island, faction)
+            if board.strength[island] >= 2
+                && let Some(tgt) = smallest_adjacent_enemy(topo, board, island, faction)
                 && ok_attack(board, island, tgt)
             {
                 self.chain = Some(tgt);
@@ -117,52 +129,31 @@ impl BotCursor {
 /// has one. Ties keep the lower start id. On disconnected imports the budget
 /// of a borderless largest component carries over (Utils.reinforce).
 pub fn reinforce(topo: &Topology, board: &mut Board, faction: Faction) {
-    let mut seen = 0u64;
-    let mut chosen = 0u64;
-    let (mut chosen_n, mut budget) = (0, 0);
-    let mut stack = [0u8; MAXN];
-    for s in topo.nodes() {
-        if board.owner[s] != faction || seen & (1 << s) != 0 {
-            continue;
-        }
-        let (mut top, mut members, mut size, mut has_border) = (0, 0u64, 0, false);
-        stack[top] = s as u8;
-        top += 1;
-        seen |= 1 << s;
-        while top > 0 {
-            top -= 1;
-            let node = stack[top] as usize;
-            members |= 1 << node;
-            size += 1;
-            for j in topo.neighbors(node) {
-                if board.owner[j] != faction {
-                    has_border = true;
-                } else if seen & (1 << j) == 0 {
-                    seen |= 1 << j;
-                    stack[top] = j as u8;
-                    top += 1;
-                }
+    let own = board.owned(faction);
+    let mut rest = own;
+    let (mut border, mut chosen_n, mut budget) = (0u64, 0, 0);
+    while rest != 0 {
+        let component = topo.flood(rest.trailing_zeros() as usize, rest);
+        rest &= !component;
+        let size = component.count_ones() as i32;
+        budget = budget.max(size);
+        if size > chosen_n {
+            let edge = bits(component).fold(0, |m, i| m | (topo.on_border(board, i, faction) as u64) << i);
+            if edge != 0 {
+                border = edge;
+                chosen_n = size;
             }
         }
-        budget = budget.max(size);
-        if has_border && size > chosen_n {
-            chosen = members;
-            chosen_n = size;
-        }
     }
-    if chosen_n == 0 {
+    if border == 0 {
         return;
     }
-    let mut border = [0u8; MAXN];
-    let mut bn = 0;
-    for i in topo.nodes() {
-        if chosen & (1 << i) != 0 && topo.on_border(board, i, faction) {
-            border[bn] = i as u8;
-            bn += 1;
-        }
-    }
-    for k in 0..budget {
-        board.strength[border[k % bn] as usize] += 1;
+    // Round-robin over the border in ascending id: the first `budget % bn`
+    // nodes get one extra.
+    let bn = border.count_ones() as i32;
+    let (each, extra) = (budget / bn, budget % bn);
+    for (k, i) in bits(border).enumerate() {
+        board.strength[i] += each + ((k as i32) < extra) as i32;
     }
 }
 
@@ -170,7 +161,7 @@ pub fn run_bot_turn(topo: &Topology, rng: &mut impl Rng, board: &mut Board, fact
     if check_winner(topo, board).is_some() || topo.counts(board)[faction as usize] == 0 {
         return;
     }
-    let mut cursor = BotCursor::begin(topo, board, faction);
+    let mut cursor = BotCursor::begin(board, faction);
     while let Some((from, to)) = cursor.next_attack(topo, board) {
         resolve_battle(rng, board, from, to);
         // Only a capture can change the winner.
