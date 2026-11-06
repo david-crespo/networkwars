@@ -1,278 +1,151 @@
 # Network Wars — project instructions
 
-## Engine (C reference + bit-identical Rust port; pure MCTS — RL/neural-net path was removed)
-- **Rules audit (2026-09-07):** `solver/RULES_AUDIT.md` records the current comparison
-  against original ARM64. New games use recovered large-army single/pair/triple
-  grouping (`rules: 2`), while `new_game_legacy` preserves unversioned/v1 saved
-  rounds for resume, AI completion, review and inspection. Preserve that version
-  through every replay path. Template probabilities, topology sampling and tie
-  ordering remain approximations; earlier win rates predate this placement fix.
-  Attacks must be legal and games unfinished; rejected requests consume no dice.
-  Zero-army defenders remain owned and are valid. Reinforcement carries the
-  largest-component budget past a borderless component on disconnected imports.
-  Gates: `solver/rules_gate.c`, `solver/legacy_rules_gate.py`,
-  `solver/rules_worker_gate.mjs`, plus the standard native/WASM/worker/review gates.
-- `solver/` is the engine + search + analysis subproject. **Pure C-UCT MCTS (no
-  neural net) is our best algorithm** — the AlphaZero/PufferLib training path was
-  dropped (it plateaued below the search; findings in memory
-  `alphago-levers-ruled-out`). No Gymnasium env or torch/pufferlib dependency.
-- **Two implementations, kept bit-identical**: `solver/fast_engine.c` (native, for the
-  Python lab) and its Rust port `engine/` (the browser's engine, `src/nw_engine.wasm`,
-  ~1.9x faster than the C compiled to WASM; see `engine/README.md`). A rules or search
-  change goes in BOTH; `(cd engine && cargo nextest run --release)` runs the
-  differential tests against the C built with `-ffp-contract=off` (Rust never
-  contracts to FMA), and `validate_wasm.py` checks board-gen parity vs native.
-- **`solver/fast_engine.c` implements everything**: board
-  generation + the iOS deal, the four bots, the fair-coin-attrition battle,
-  reinforcement, win check, and the open-loop C-UCT search (ranked **C1** rollout
-  baked in, `c_puct=2.5`). The search has an opt-in **grading mode**
-  (`uct_set_grade`, default off = bit-identical): root min-visit floor + dominance
-  early-stops disabled + second-half Q readout, for accurate comparison ACROSS root
-  moves rather than fastest best-move pick — used by every flow that grades human
-  play (h2h score-my-decisions via the search request's `grade` flag; formerly also
-  the free-play blunder alert), never by play/autoplay (verified helpful by `solver/grade_eval.py`;
-  regression-gated in `validate_fast.py`). Everything else is a thin client over it:
-  - `solver/fastnw.py` — ctypes client (marshals int32 arrays; implements no rules).
-  - `solver/network_wars.py` — a readable State/Node shim that delegates every rule
-    to the C engine, so the Python analysis tooling keeps an object API.
-  - `index.html` + `src/` — the **self-contained WASM frontend**, TypeScript built with Vite
-    (`npm run dev` / `npm run build` into `dist/`; `vite.config.ts`). `npm run typecheck` runs
-    tsc (strict) over the page, the service worker and the node configs; the shared data
-    shapes (worker replies, the saved tally) are in `src/types.ts`, the WASM exports in
-    `src/fastnw.ts`. The node gates import the `.ts` sources directly (node strips
-    the types), and `solver/page_slice.mjs` strips them from the slices of `src/main.ts`
-    that some gates run in a vm. The Rust engine is compiled to
-    WASM (`src/nw_engine.wasm`, committed: Workers Builds has no Rust toolchain; Vite
-    emits it as a hashed asset) and runs IN THE BROWSER inside a Web Worker.
-    `src/fastnw.ts` is the JS marshalling layer (port of `fastnw.py`; in node it reads
-    the .wasm from disk, since node's fetch can't read files); `src/engine.worker.ts` is the game/orchestration layer — it
-    holds game state and speaks the `/api/game/*` contract via postMessage, so the page needs no server to play. Search runs
-    in the worker so the UI never blocks (adaptive budget: floor ~2000 sims, ceiling
-    ~150k, visit-margin early stop — see memory `adaptive-sims`).
-    Its `updateWinner` ends the game on **any of**: a faction at 24, one faction left,
-    **or RED at 0 nodes** — that last one because attacks launch only FROM an owned node,
-    so a wiped red can never move again and the game is already lost. Without it the
-    player was left with no legal moves, forced to End Turn while the bots raced to 24
-    (fixed 2026-07-17; regression-checked by driving the worker over 40 seeds and
-    asserting no state has `counts.red===0 && !over` — ~3/40 games end by wipe, and the
-    check catches 2 violations if the rule is removed).
-    `src/board.ts` is the board renderer + battle/bot-turn animation
-    (octagon nodes, coin-flip replay, reinforce flashes) — the one place the game's
-    look lives; the page imports it and never draws its own board.
-    One page, pure-static (the free-play page was removed 2026-08-14 and lives
-    in git history):
-      - `sw.js` — **offline, no UI**: the page is fetched network-first (a 3 s stall
-        serves the cached copy) and Vite's content-hashed `assets/` cache-first, one
-        cache per release. `vite.config.ts` pins the release id (also a meta tag in the
-        page) + precache list into it, so every deploy installs a new worker; activation
-        keeps the current + previous release. Built only: `npm run dev` has no service
-        worker. Each `new Worker` gets its own URL (`?n=N`): WebKit shares one script
-        load between workers started together and leaves the second uncontrolled, so
-        the AI worker failed a cold offline start (Playwright WebKit, 2026-09-27).
-        Gate: the offline test in `e2e/` (Chromium only: Playwright's WebKit fails
-        offline navigations before the service worker sees them).
-      - `index.html` + `src/main.ts` — **duplicate-format** head-to-head play vs the engine, continuous:
-        you play a seed blind (your worker issues ZERO searches) while the AI plays THE
-        SAME seed **concurrently in a SECOND worker**; finish and the next seed is dealt,
-        with a running W-L tally. The AI pump prioritizes the inspected or just-finished pair, then the
-        newest dealt seed and older ones. It switches between complete moves and
-        resumes saved actions without repeating searches, and it isolates a
-        seed it cannot play (`aiErr`) instead of throwing out of the pump — oldest-first
-        plus an unhandled throw both meant the pair you were looking at never completed.
-        **The two workers are load-bearing, not a nicety**:
-        `engine.worker.ts` serves its inbox in order and aborts an in-flight search as
-        soon as a request queues behind it, so a shared worker would let every tap you
-        make truncate the AI's search and silently handicap it — corrupting the very
-        comparison the page exists to make. A dot beside the AI's score pulses
-        while it plays (nothing about its game, which would spoil the seed you're still
-        on) — you never wait for it.
-        Because the seed pins board+dice, this removes the deal variance that dominates
-        unpaired winrates (`sim-vs-real-deal-imbalance`, `hard-set-2026-07-02`). The
-        tally panel is deliberately minimal — the two W-L score cards, the
-        **skill-over-time graph and compact numeric comparison**, + the seed-list browser.
-        `src/skill.ts` compares the latest 20 finished games with the previous
-        20 (grows from 10 vs 10); unrecoverable missing games are silently
-        omitted, while pending games in either window defer the comparison. Only live decisions contribute, with equal weight per game.
-        Comparison color is applied cautiously: changes under 0.5 win-chance points or
-        within two standard errors of game-to-game variation are inconclusive,
-        not a calibrated test of underlying skill. The graph shows game averages
-        as quiet dots + a trailing 10-game mean, labeled axes (lower is better),
-        and last 10/100/all finished games (default 100). Pending reviews retain
-        their x-position and interrupt the line. Unrecoverable games are omitted.
-        Keep this UI minimal: chart, zoom chips, and one numeric legend only.
-        No explanatory prose, verdicts, coverage notices, or analysis status text. Gate:
-        `node solver/skill_gate.mjs` (comparison, coverage, quota, queue failures) and
-        `node solver/review_scheduler_gate.mjs` (which also runs the page's own
-        `nextAiSeed`/`aiPump` and the lane throttle).
-        Coverage comes from the **background scorer**:
-        a pump that reviews every finished seed, NEWEST first, for as long as the
-        page is open, so the graph fills itself in and no longer skews toward
-        auto-scored losses. The scorer itself is **`src/review.ts`**
-        (`createReviewer(makeEngine).grade(round, onPartial)` + the tier/dead-band
-        constants and `reviewAggregates`; the page keeps only the model, the pump and
-        rendering): all grading (pump + an open panel's review) runs on a **review
-        worker pool** (`REVIEW_WORKERS` = hardwareConcurrency − 2, capped at 6,
-        lazily created) whose concurrency the page throttles: `reviewer.setLanes(1)`
-        while the AI is playing, back to the full pool when it idles. Dedicated
-        workers are still workers — an unthrottled pool starved the h2h AI to ~1/6
-        speed on a 10-core (fixed 2026-09-07), which together with an oldest-first
-        AI pump left every visible pair reading "AI —". Never 0 lanes: an open
-        panel's review must keep progressing. Positions of a game are independent bit-exact replays, so
-        each pool worker keeps its own replay and pulls the next unscored move in
-        play order (2026-09-01: 44-decision game 10.4s → 2.2s on a 10-core, results
-        bit-identical; the partial review has null holes where a search is still
-        out, and its consumers skip them). Dedicated workers because
-        engine.worker.ts aborts an in-flight search when a request queues behind it
-        — sharing yours or the AI's would silently truncate grading searches below
-        their 16k floor. Gate: `node solver/review_gate.mjs [seed] [workers]` hosts
-        the worker in real threads and asserts parallel ≡ serial. Per-seed detail: **one red-nodes-vs-turn graph with both players' lines**
-        (you teal / AI yellow, + the 24-to-win line; legend doubles as each side's final
-        score), with dotted **win% overlays** on the same graph on their own implicit
-        0-100% scale (AI line = the winexp its search reported per move at play time;
-        your line = the review's per-decision bestQ, so it fills in as scoring runs;
-        dotted/thinner under the solid node lines) + **both
-        move lists**, steppable — tapping a move replays the seed to that
-        point (bit-exact) and shows the exact board with the move highlighted. AI moves
-        carry the search's own win% per move; labels are snapshotted at play time (`mv.l`)
-        so lists render without a replay. Decision scoring re-searches every position
-        of your game (grading-mode searches, 16k floor / 24k ceiling) and grades each
-        choice vs the search's best — the blunder-alert metric over a whole game; it
-        starts **automatically whenever a seed's analysis opens** (no button), results
-        render **rolling** (each scored move fills in as its search finishes;
-        versioned partial checkpoints resume only when the seed + full action
-        sequence match, with a throttled save about once per second), and a loss **auto-opens its analysis**
-        (the next seed is dealt underneath, so closing drops you into it).
-        Review workers prioritize the open panel, then newer finished games, between
-        complete searches. A newly finished game starts grading immediately even
-        if the backlog pump is awaiting an older review. Workers keep
-        at most two warm replays each. The inspector uses `src/replay.ts` to
-        cache two complete trajectories from `/api/replay`, without retaining
-        another worker game or rebuilding battle animations per selection.
-        `solver/REVIEW_PERFORMANCE.md` documents the performance and accuracy study.
-        The engine caches the extended exact battle DP (up to 16 MiB per worker)
-        instead of rebuilding it for every large-stack pair. Values and search
-        budgets are unchanged; `solver/latency_bench.mjs` checks full-game parity.
-        **Live** decisions exclude a move only when BOTH the recommended and played
-        Q are in the same extreme band (≤2% or ≥98%). A winning recommendation does
-        not excuse a move that throws away the win. Grading choices always use the
-        24k ceiling; only forced moves may stop at the 16k floor. Review version 2
-        rescores saved replays and excludes stale compact scores from comparisons.
-        Search/math regressions and caveats: `solver/MATH_AUDIT.md`. No intro/setup gate — loading the page deals a seed immediately (a
-        stored tally resumes). **Persistence is localStorage under a soft cap**
-        (`SAVE_CAP`, 2.0M chars; Safari's ~5 MB quota is UTF-16): a finished seed with
-        its review weighs ~20 KB, so `save()` strips replay detail (moves/labels/hist/
-        start board) from the OLDEST finished pairs when the blob outgrows the cap or
-        setItem throws — the result and the review's per-decision gaps (tally + skill
-        graph) stay, the seed just can't be opened for analysis (`r.trim`).
-        Fully trim scored pairs first. Unscored pairs can shed labels/history
-        (`r.lean`) but MUST retain their action sequences until grading completes;
-        otherwise they can never leave the analysis backlog. A failed review
-        does not stop the pump from analyzing the rest. Before
-        this (fixed 2026-09-04) a quota error was swallowed, the saved state froze at
-        whatever last fit, and every reload resumed that same stale seed. **Save Data (JSON)** in the
-        menu downloads the in-memory tally + settings + a session `diagnostics` block (AI-pump events,
-        search timings, save failures, in-flight worker requests, reported cores) — the way to debug a
-        device-only failure offline. **Think time** (since 2026-09-27, never shown): each of your moves
-        stores `t` (epoch ms committed) and `ms` (visible time the board was yours before the tap,
-        excluding animations, a hidden tab and full-screen panels). Swept moves carry `sw: 1` and no `ms`;
-        each round stores `at` (dealt). Trimming keeps `ms` beside each review gap, so think time vs
-        mistakes stays analyzable. A worker `onerror` now answers its in-flight requests with
-        `{error}` instead of leaving the AI pump waiting forever. Errors are also **surfaced on
-        screen** (a phone has no console): uncaught errors/rejections, worker failures, a request
-        with no reply after 120 visible seconds, failed AI seeds/reviews and failed saves go to
-        `reportError` → the menu's **Errors** item (count only there, so harmless errors add
-        no noise to the board) → a list with Copy/Clear, each entry tagged with the release
-        that raised it (`RELEASE`, the release id in the page's meta tag; 'dev' locally).
-        The panel's first line is the running version, checked against the live page ("newer
-        … deployed, reload") — a resumed phone tab keeps old code and sw.js may serve the
-        cached page. Persisted in `nwErrors` so they survive iOS reloading the tab. That log found
-        the phone-only "no AI results" bug (2026-09-28): `engine.worker.ts` yields between
-        search chunks through a MessageChannel, and WebKit brokers every MessagePort via its
-        networking process, which iOS suspends/kills when the app is backgrounded — ports
-        then stop delivering with no error, so every searching worker (AI + review pool)
-        awaited a yield forever for the rest of the session. The worker now yields on
-        timers only (no MessageChannel; measured no slower, results identical). A stall
-        report says where the worker stopped: its last search chunk (a `beat` message
-        per chunk) and, via a `ping` answered outside the request queue, what its pump
-        is doing, or that it doesn't answer. Gate: `node solver/yield_gate.mjs`
-        (MessageChannel made unusable; beats; mid-search ping). Caveat (documented in the page's header comment, no
-        longer surfaced in the UI): same seed = same deal + same dice STREAM, but draws
-        are consumed serially, so once your moves diverge from the AI's you pull
-        different coins. Duplicate bridge, not dice-for-dice (which isn't coherent once
-        actions differ).
-    The page has one opt-in assist, the **sweep-up offer** (`nwSweep`): auto-play
-    the rest of a won game with the mop-up rule in `fast_engine.c`
-    (`sweep_best_move` — strongest attacker, hit any strictly weaker neighbor, else
-    end turn). Its gate is a **Monte-Carlo certificate of that policy**
-    (`sweep_certify`: play the mop-up to the end 1000x on the private sim dice, offer
-    only if none lose), NOT a win% off the search, and it **re-certifies before every
-    swept action** (400 trials, bail if >2 lose) and hands the game back if the dice
-    turn. A playout that stalls at MAX_TURNS counts as a **loss** (2026-07-24): the
-    mop-up never takes an even fight, so lockstep-reinforcing borders are a true
-    stalemate — under the old plurality tiebreak the cert kept passing and the live
-    sweep end-turned forever; stall=loss means no offer / immediate bail instead. The old gate — "the search says every root move wins >99.95%" — was unsound
-    twice over (it measured how the SEARCH would play, and grading-mode Qs in
-    near-won positions average ~20 rollouts, so the threshold couldn't resolve 99%
-    from 100% and raising it did nothing): it fired in 188/190 games at a median of
-    **turn 3 / 10 RED nodes** and the mop-ups it authorized **lost 5.3%**. The
-    certificate is ~100x cheaper (0.1ms median / 8.6ms worst in WASM) and measures
-    0 losses in 12400 sweeps. Full numbers + tooling: `solver/SWEEP_UP.md`
-    (`sweep_audit.py`, `sweep_variants.py`, `sweep_final.py`). On top of the
-    certificate the page withholds the offer until RED holds a strict board majority
-    (more nodes than all bots combined — median offer 16 RED nodes vs 15 under the
-    old plain-lead rule), and shows it in the footer between the bolt (the
-    instant-animation toggle) and End Turn so it never covers the board.
-  - Deploy: `wrangler.jsonc` builds with `npm run build` and serves `dist/` as an
-    assets-only Cloudflare Worker (Workers Builds deploys every push to `main`).
-    Locally, `npm run dev`; `npm run test:e2e` runs Playwright on the built site.
-  There is no JS rules engine — board-gen, bots, battle, reinforce, and search are all
-  the one C source. Regression gates: `solver/validate_fast.py` (native, board/deal/
-  battle invariants over 1000 seeds + frozen golden-seed outcomes) and
-  `solver/validate_wasm.py` (WASM board-gen BIT-PARITY vs native over 1000 seeds +
-  structural/battle invariants + determinism, via `solver/wasm_gate.mjs` in node).
-  Third gate for the browser layer: `node solver/worker_gate.mjs [nseeds]` fakes a Web
-  Worker so `engine.worker.ts` can be driven in node over the pages' own
-  `/api/game/*` request sequence (routes + the sweep-up loop, incl. its bail path).
-- Two things came from the real game: the deal (every faction totals 20, 4 fixed
-  templates) and battle. BATTLE is now the **real decompiled mechanic** —
-  **iterated fair-coin attrition, zero fitted parameters** (2026-07-02; recovered
-  from the shipped iOS IPA, see solver/REAL_BATTLE_DECOMPILED.md and
-  ipa_decompile/). The atomic op is a **fair coin** (`killflip(team) =
-  teamRandom.Next(2)`, p=0.5). `resolve_battle`: two guarded attacker **pre-fires**
-  (coin → defender loses 1), then a symmetric loop (each round the attacker's coin
-  can drop a defender and the defender's coin can drop an attacker) until `d==0` or
-  `a==1`; **capture** iff `a>1 && d==0` → occupier `a-1`, source keeps exactly 1;
-  else **repel** → source ground to 1, defender keeps remnant `d`. Survivors are NOT
-  a separate draw — the attrition loop IS the survivor distribution. Coins are
-  integer `RNG()<0.5` for WASM bit-parity; the search's CAPP/CAPES tables are the
-  exact DP of this loop. (The old fitted single-shot `a^3.40/(a^3.40+1.26 d^3.40)` +
-  beta-binomial survivor model was a good surrogate — it nailed parity ≈0.44 — but
-  is now removed in favor of ground truth.)
-- BOTS are the **real decompiled opponent AI** (2026-07-17; `OpponentAIOriginal`
-  from the IPA — max spotted the chain behavior in live play, asm in
-  `ipa_decompile/re/ai/`): each bot makes ONE **strongest-first** pass over the
-  islands it owned at turn start; each island attacks its **smallest adjacent
-  enemy** and, on capture, the bot **keeps attacking with the stack it just
-  moved** (chain) until a repel or the target isn't strictly weaker
-  (okAttack: attacker ≥2 and > defender). A stack is never revisited and attacks
-  that open up later in the turn are not taken; ties are deterministic (node-id /
-  adjacency order — NO RNG in move selection, so bot turns consume dice only in
-  battles); then it reinforces its largest component's border. The in-turn cursor
-  is exposed (`bot_turn_begin/next`) so the browser worker replays turns
-  attack-by-attack bit-identically to the atomic `end_turn`. (The shipped app
-  also contains an unused `OpponentAINiceEarly` variant — ruled out as the live
-  default by 11 early bot captures of 3-6-army red nodes across 100 live games,
-  which its early-game mercy rule forbids.)
-- Build + drive: native `solver/build_native.sh` (PGO: instrument → profile →
-  rebuild; **bit-identical play**, ~3% faster; falls back to the plain one-liner
-  `cc -O3 -ffast-math -shared -fPIC solver/fast_engine.c -o solver/fast_engine.so`
-  if llvm-profdata is missing), then `solver/fmcts.py` (or `solver/par_eval.py` for
-  parallel winrate evals). WASM build (for
-  the in-browser engine): `engine/build.sh` (cargo, wasm32-unknown-unknown →
-  `src/nw_engine.wasm`; commit it), then validate with the cargo differential tests
-  and `solver/validate_wasm.py`. `solver/check.sh` does both. On the iOS-faithful deal, offline self-play winrate is
-  **~94–95%** (8000 sims). The old offline-over-predicts-live gap is **CLOSED**: after
-  the battle/survivor recalibration above, a 100-game live run scored **94.0%** (CI
-  87.5–97.2%), matching offline at the same C-UCT config (memory
-  `sim-real-gap-closed-2026-06-29`, supersedes the old ~77–81% plateau). Most of the
-  few losses are early dice-snowballs, not search errors.
+A faithful re-creation of the iOS game Network Wars, an MCTS AI that plays it, and a
+static web page for duplicate-format head-to-head play against that AI, deployed on
+Cloudflare. You are RED against four deterministic bots on a 30-node graph; the first
+faction to 24 nodes wins. The rules (deal, battle, bots, army placement) were recovered
+by decompiling the shipped IPA.
+
+## Layout
+
+- `engine/`: the only rules and search implementation (Rust). `nw-core/src` has
+  `board_gen.rs`, `battle.rs`, `rules.rs`, `policy.rs` (C1 rollout and sweep-up),
+  `search.rs`, `rng.rs`, `topology.rs`; `nw-abi` has the `extern "C"` exports.
+- `src/nw_engine.wasm`: the engine built for the browser, committed because Workers
+  Builds has no Rust toolchain.
+- `src/`: the page (TypeScript, Vite). `main.ts` has the model, persistence, AI and review
+  pumps, and rendering; `engine.worker.ts` holds game state and serves the `/api/*` routes
+  in a Web Worker; `fastnw.ts` marshals the WASM exports; `board.ts` draws and animates
+  the board; `review.ts` scores decisions; `skill.ts` and `projections.ts` compute the
+  skill comparison and win% curves; `replay.ts` caches inspector trajectories; `types.ts`
+  has the shared shapes; `sw.ts` is the service worker.
+- `solver/`: the Python lab, the node gates and most docs. Python is for scripting and
+  analysis (process pools, stats, fits) and implements no rules. `fastnw.py` loads
+  `engine/target/release/libnw_engine.dylib` via ctypes (`NW_ENGINE_SO` overrides);
+  `network_wars.py` is an object shim over it; `fmcts.py`, `par_eval.py` and `hard_ab.py`
+  run self-play and paired A/B evals.
+- `e2e/`: Playwright tests against the built site.
+
+## Build and test
+
+```sh
+engine/build.sh                          # src/nw_engine.wasm + native dylib
+(cd engine && cargo nextest run --release)
+solver/check.sh                          # all gates; read it for the current list
+npm run dev                              # no service worker in dev
+npm run typecheck
+npm run test:e2e                         # not part of check.sh
+uv run --project solver python solver/par_eval.py --games 1000 --sims 8000
+```
+
+Workers Builds deploys every push to `main` (`wrangler.jsonc`, serving `dist/`).
+
+- After any engine change, run `engine/build.sh` and commit `src/nw_engine.wasm`.
+- Don't run `cargo fmt` on engine sources without rebuilding and committing the wasm:
+  reformatting shifts line numbers in the wasm's panic messages, which changes the binary.
+- `engine/nw-abi/tests/traces.rs` has golden digests of everything observable through
+  the ABI. A moved digest means the game or search changed; update it only when that is
+  intended, and say so in the commit. To find where two revisions diverge, set
+  `NW_TRACE_DIR`, run both, and diff the dumps.
+- `solver/page_slice.mjs` cuts code out of `src/main.ts` between marker strings (function
+  headers, section comments) for `skill_gate.mjs` and `review_scheduler_gate.mjs`.
+  Renaming a marker breaks those gates.
+
+## Docs
+
+- `DESIGN.md`: the rules in prose, the reference for what the game is.
+- `solver/RULES_AUDIT.md`: rules compared against the original binary, rules versions,
+  and what remains approximate.
+- `solver/REAL_BATTLE_DECOMPILED.md`, `REAL_BOT_DECOMPILED.md`, `MAP_DEAL_DECOMPILED.md`:
+  how battle, bot turns and the deal were recovered.
+- `solver/MATH_AUDIT.md`: search and projection math, corrections and caveats.
+- `solver/SWEEP_UP.md`: why sweep-up uses a policy certificate.
+- `solver/REVIEW_PERFORMANCE.md`: review speed and accuracy.
+- `solver/SEARCH_VARIANTS.md`, `solver/HARD_SET.md`: search experiments and the hard-opening benchmark.
+- `solver/NODE_VISUAL_REFERENCE.md`: node colors sampled from the original game.
+- `engine/README.md`, `solver/README.md`: the engine and the lab in depth, with bench commands.
+
+## Engine invariants
+
+- **Faithful rules.** Battle is the decompiled fair-coin attrition loop, with no fitted
+  parameters; bots are the decompiled `OpponentAIOriginal`, with no RNG in move choice.
+  Check `DESIGN.md` and the decompiled docs before changing either.
+- **Rules versions.** New games use rules 2; unversioned saved rounds are rules 1
+  (`new_game_legacy`). Pass a round's version through every replay path (resume, AI
+  completion, review, inspector): saved actions replayed on the other generator's board
+  silently become a different game.
+- **Two dice streams.** The game uses mulberry32; the search rolls out on a private
+  splitmix64 stream, so searching never changes the game or sees its future dice.
+- **Rejected actions are free.** An illegal attack, or any action on a finished game, is
+  refused without consuming dice. A zero-army defender stays owned and is a valid target.
+- **Grading mode** (`uct_set_grade`, the search request's `grade` flag) is for grading
+  human moves only, never for play. It spreads the budget across root moves for accurate
+  comparison instead of finding the best move fast. The engine flag is sticky, so the
+  worker clears it on every exit.
+- **Bot turns run step by step** through `bot_turn_begin/next` so the page can animate
+  each attack; the result must stay bit-identical to the atomic `end_turn`.
+- An AlphaZero-style trained network was tried and plateaued below pure MCTS.
+
+## Worker contract
+
+`engine.worker.ts` serves HTTP-style routes over postMessage: `POST /api/game`
+(`{seed, rules}`); `GET`/`DELETE /api/game/:id`; `POST /api/game/:id/` + `attack`
+(`{from, to}`), `end-turn`, `search` (`{sims, maxSims, tag, grade}`), `sweep-check`
+(`{trials, maxLosses}`); and `POST /api/replay` (`{seed, rules, moves}`, all frames in one
+pass). `/load-board` is for `rules_worker_gate.mjs` only. Failures come back as `{error}`.
+`solver/worker_gate.mjs` drives the routes the way the page does.
+
+- **One worker per role.** The worker serves requests in order and aborts an in-flight
+  search when a request queues behind it. The player, the AI and the review pool
+  therefore have separate workers; sharing would let a tap truncate the AI's or a
+  grader's search. The player's worker never searches.
+- **Yield on timers, never MessageChannel.** WebKit routes MessagePorts through a process
+  iOS kills in the background, after which a search awaiting a port hangs forever.
+  Enforced by `solver/yield_gate.mjs`.
+- **The game ends when RED has 0 nodes.** Attacks launch only from owned nodes, so a wiped
+  RED could otherwise only press End Turn while the bots race to 24.
+- Each `new Worker` gets its own URL (`?n=N`): WebKit shares one script load between
+  workers started together and leaves the second outside the service worker, which
+  breaks offline starts.
+
+## The page
+
+- **Duplicate format.** You play a seed blind while the AI plays the same seed in its own
+  worker. The seed fixes the board and the dice stream, removing the deal variance that
+  dominates unpaired win rates; once moves diverge, the two games draw different coins.
+  A loss opens its analysis automatically, with the next seed dealt underneath.
+- **AI pump** (`nextAiSeed`): the inspected or just-finished pair first, then newest to
+  oldest. It switches seeds only between complete moves, resumes saved actions without
+  re-searching, and parks a seed it can't play in `aiErr` instead of throwing.
+- **Review** (`review.ts`): grading-mode searches of every position you faced, 16k floor
+  and 24k ceiling (only forced moves stop at the floor). A decision is excluded only when
+  both the best and the played Q sit in the same extreme band (≤2% or ≥98%), so throwing
+  away a won game still counts. Bump `REVIEW_VERSION` when grading results change. The
+  page drops the pool to one lane while the AI plays, so grading doesn't starve it, and
+  never to zero, so an open analysis keeps progressing.
+- **Sweep-up** (opt-in): auto-plays a won game with the engine's mop-up policy. The offer
+  is gated on a Monte-Carlo certificate of that policy, not on a search win%, which
+  measures how the search would play and can't tell 99% from 100%. A playout that stalls
+  at the turn limit counts as a loss, because the mop-up never takes an even fight. Every
+  swept action re-certifies and hands the game back on failure. The offer sits in the
+  footer so it never covers the board. See `SWEEP_UP.md`.
+- **Persistence** is localStorage under `SAVE_CAP`, below Safari's quota. `trimOldest`
+  strips replay detail from the oldest finished pairs and keeps results and review gaps.
+  Unscored pairs may lose labels and history but must keep their action sequences, or
+  they can never be graded and sit in the backlog forever. Failed saves are reported.
+- **Errors.** A phone has no console, so errors, worker failures, stalled requests and
+  failed saves go through `reportError` to the menu's Errors panel. Save Data (JSON)
+  exports the tally with a diagnostics block for debugging a device offline.
+- Each of your moves records commit time `t` and think time `ms`, never shown in the UI.
+
+## UI conventions
+
+- Red, green, yellow, blue and purple are faction colors. Don't use them for anything
+  else (charts, badges, highlights).
+- The header shows "Seed N", the You/AI W-L tally, and a dot that pulses while the AI
+  plays (nothing more about its game, which would spoil your seed). Under it are the five
+  node counts, each in a box of its faction's color.
+- The board keeps the original octagon-prism look, all in `board.ts`. A flat redesign was
+  tried and rejected.
+- Keep the skill panel minimal: the chart, the zoom chips and one numeric legend. No
+  explanatory prose, verdicts, coverage notices or status text.
