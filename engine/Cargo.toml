@@ -1,0 +1,25 @@
+[workspace]
+members = ["nw-core", "nw-abi"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Release settings without the link-time knobs, to measure what they buy.
+[profile.plain]
+inherits = "release"
+lto = false
+codegen-units = 16
+panic = "unwind"
+
+# Smaller wasm, to see what size costs in speed.
+[profile.size]
+inherits = "release"
+opt-level = "s"
