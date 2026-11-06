@@ -133,6 +133,9 @@
     padding:calc(14px + env(safe-area-inset-top)) 18px 14px;
     border-bottom:1px solid rgba(255,255,255,.08);
     font-size:15px; font-weight:700; color:#cfe; letter-spacing:.03em; flex:0 0 auto; }
+  /* close ✕: a full 44px tap target, pulled into the header padding */
+  .p-head .x { width:44px; height:44px; margin:-12px -12px -12px 0; padding:0; display:flex;
+    align-items:center; justify-content:center; font-size:26px; line-height:1; }
   .p-body { overflow-y:auto; padding:16px 18px calc(16px + env(safe-area-inset-bottom));
     overscroll-behavior:contain;
     scrollbar-width:thin; scrollbar-color:rgba(95,208,214,.45) transparent; }
@@ -296,7 +299,7 @@
 
 <!-- tally -->
 <div class="ov" id="ov-res"><div class="panel">
-  <div class="p-head"><span id="res-title">Tally</span><div class="act" id="res-close">&#10005;</div></div>
+  <div class="p-head"><span id="res-title">Tally</span><div class="act x" id="res-close" aria-label="Close">&#10005;</div></div>
   <div class="p-body" id="res-body"></div>
   <div class="p-foot">
     <div class="act danger" id="res-reset">Reset tally</div>
@@ -305,7 +308,7 @@
 
 <!-- errors (reachable from the menu) -->
 <div class="ov" id="ov-err"><div class="panel">
-  <div class="p-head"><span>Errors</span><div class="act" id="err-close">&#10005;</div></div>
+  <div class="p-head"><span>Errors</span><div class="act x" id="err-close" aria-label="Close">&#10005;</div></div>
   <div class="p-body"><div id="err-list"></div><div id="err-ctx"></div></div>
   <div class="p-foot">
     <div class="act" id="err-copy">Copy</div>
