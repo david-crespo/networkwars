@@ -122,6 +122,7 @@ pub struct CapTables {
     ext: Option<Extension>,
     ext_a: usize,
     ext_d: usize,
+    tiles: Tiles,
 }
 
 impl Default for CapTables {
@@ -186,6 +187,7 @@ impl CapTables {
             ext: None,
             ext_a: 1,
             ext_d: 0,
+            tiles: Tiles::default(),
         }
     }
 
@@ -218,8 +220,8 @@ impl CapTables {
     }
 
     /// Large stacks must not be clamped: 400 vs 160 is nothing like 159 vs
-    /// 159. Use the extended exact DP, or two rolling rows past its bound,
-    /// behind a small pair cache.
+    /// 159. Use the extended exact DP, then the tiles past its bound, then two
+    /// rolling rows past theirs, behind a small pair cache.
     #[cold]
     fn large_estimate(&mut self, a: i32, d: i32) -> CapEstimate {
         let key = ((a as u32).wrapping_mul(131).wrapping_add(d as u32) % 256) as usize;
@@ -232,6 +234,8 @@ impl CapTables {
             let ext = self.ext.as_ref().unwrap();
             let row = au * CAP_EXTENT;
             fold_prefires(du, |dd| (ext.p[row + dd], ext.s[row + dd]))
+        } else if let Some(rows) = self.tiles.fold(au, du) {
+            rows
         } else if let Some(rows) = two_row_dp(au, du) {
             rows
         } else {
@@ -297,6 +301,133 @@ fn zeroed(len: usize) -> Option<Vec<f64>> {
     Some(v)
 }
 
+/// Tile side, in cells.
+const TILE: usize = 64;
+/// Tiles per side at most: stacks up to `2 + 64 * 64`, 8 MiB of edges.
+const MAX_TILES: usize = 64;
+
+type Cell = (f64, f64);
+
+/// Column 0 of the main-loop DP: `a > 1` captures with `a - 1` left.
+#[inline]
+fn column0(a: usize) -> Cell {
+    if a > 1 { (1.0, (a - 1) as f64) } else { (0.0, 0.0) }
+}
+
+/// One tile's last row and last column of the main-loop DP.
+#[derive(Clone)]
+struct Tile {
+    bottom: [Cell; TILE],
+    right: [Cell; TILE],
+}
+
+/// The main-loop DP past the extended table, exact and in little memory:
+/// tile `(i, j)` covers attackers `2 + i * TILE ..` and defenders
+/// `1 + j * TILE ..`, and keeps only its last row and column. Any cell is
+/// recomputed from its tile's top and left neighbors' edges, by the same
+/// recurrence in the same order, so it is bit-identical to the rolling rows.
+#[derive(Default)]
+struct Tiles {
+    /// `rows[i][j]`; all rows have the same length.
+    rows: Vec<Vec<Tile>>,
+}
+
+impl Tiles {
+    /// Run the recurrence over rows `2 + i * TILE ..= a` and the first `w`
+    /// columns of tile `(i, j)`, calling `on_row(r, row)` with each row
+    /// (`row[c]` is column `j * TILE + c`, so `row[0]` is the left edge).
+    fn sweep(&self, i: usize, j: usize, a: usize, w: usize, mut on_row: impl FnMut(usize, &[Cell; TILE + 1])) {
+        let a0 = 2 + i * TILE;
+        // Row a0 - 1: the edge of the tile above, or the all-zero row 1.
+        let mut prev = [(0.0, 0.0); TILE + 1];
+        if i > 0 {
+            prev[1..=w].copy_from_slice(&self.rows[i - 1][j].bottom[..w]);
+            prev[0] = if j > 0 { self.rows[i - 1][j - 1].bottom[TILE - 1] } else { column0(a0 - 1) };
+        }
+        let mut cur = [(0.0, 0.0); TILE + 1];
+        for r in 0..=a - a0 {
+            cur[0] = if j > 0 { self.rows[i][j - 1].right[r] } else { column0(a0 + r) };
+            for c in 1..=w {
+                cur[c].0 = (prev[c - 1].0 + cur[c - 1].0 + prev[c].0) / 3.0;
+                cur[c].1 = (prev[c - 1].1 + cur[c - 1].1 + prev[c].1) / 3.0;
+            }
+            on_row(r, &cur);
+            prev = cur;
+        }
+    }
+
+    /// Compute every tile up to `(i, j)`. False if that is past the cap or
+    /// cannot be allocated.
+    fn cover(&mut self, i: usize, j: usize) -> bool {
+        if i >= MAX_TILES || j >= MAX_TILES {
+            return false;
+        }
+        let (n_rows, n_cols) = (self.rows.len(), self.rows.first().map_or(0, Vec::len));
+        let (want_rows, want_cols) = (n_rows.max(i + 1), n_cols.max(j + 1));
+        if self.rows.try_reserve(want_rows - n_rows).is_err() {
+            return false;
+        }
+        for ii in 0..want_rows {
+            if ii == self.rows.len() {
+                self.rows.push(Vec::new());
+            }
+            let have = self.rows[ii].len();
+            if self.rows[ii].try_reserve_exact(want_cols - have).is_err() {
+                return false;
+            }
+            for jj in have..want_cols {
+                let mut tile = Tile {
+                    bottom: [(0.0, 0.0); TILE],
+                    right: [(0.0, 0.0); TILE],
+                };
+                self.sweep(ii, jj, 2 + ii * TILE + TILE - 1, TILE, |r, row| {
+                    tile.right[r] = row[TILE];
+                    if r == TILE - 1 {
+                        tile.bottom.copy_from_slice(&row[1..]);
+                    }
+                });
+                self.rows[ii].push(tile);
+            }
+        }
+        true
+    }
+
+    /// Row `a` of the main-loop DP over columns `d - 2 ..= d`, pre-fires
+    /// folded, or `None` past the cap. Needs `a >= 2`, `d >= 1`.
+    fn fold(&mut self, a: usize, d: usize) -> Option<(f64, f64)> {
+        let i = (a - 2) / TILE;
+        let tile_of = |dd: usize| (dd - 1) / TILE;
+        if !self.cover(i, tile_of(d)) {
+            return None;
+        }
+        // The needed columns lie in at most two tiles.
+        let mut cells = [(0.0, 0.0); 3];
+        let mut done = 0;
+        for k in 0..3 {
+            let dd = d.saturating_sub(k);
+            if dd == 0 {
+                cells[k] = column0(a);
+            } else if done <= k {
+                let j = tile_of(dd);
+                let w = dd - j * TILE;
+                self.sweep(i, j, a, w, |r, row| {
+                    if r == a - 2 - i * TILE {
+                        // Fill every needed column this tile holds.
+                        for kk in k..3 {
+                            let c = d.saturating_sub(kk);
+                            if c > j * TILE && c <= j * TILE + w {
+                                cells[kk] = row[c - j * TILE];
+                                done = kk + 1;
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        Some(fold_prefires(d, |dd| cells[d - dd]))
+    }
+}
+
 /// The main-loop DP for one `(a, d)` in two rolling rows, pre-fires folded.
 fn two_row_dp(a: usize, d: usize) -> Option<(f64, f64)> {
     let width = d + 1;
@@ -315,4 +446,33 @@ fn two_row_dp(a: usize, d: usize) -> Option<(f64, f64)> {
         std::mem::swap(&mut prev_s, &mut next_s);
     }
     Some(fold_prefires(d, |dd| (prev_p[dd], prev_s[dd])))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tiles must match the rolling rows bit for bit, including at tile
+    /// edges and column 0.
+    #[test]
+    fn tiles_match_rolling_rows() {
+        let mut tiles = Tiles::default();
+        let edges = [2, 3, 4, 65, 66, 67, 129, 130, 1023, 1024, 1025, 1500];
+        let mut pairs: Vec<(usize, usize)> = Vec::new();
+        for &a in &edges {
+            for d in [1, 2, 3, 63, 64, 65, 66, 128, 129, 130, 700, 1024, 1029, 1441] {
+                pairs.push((a, d));
+            }
+        }
+        let mut x = 12345u64;
+        for _ in 0..200 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            pairs.push((2 + (x >> 33) as usize % 1600, 1 + (x >> 13) as usize % 1600));
+        }
+        for (a, d) in pairs {
+            let (p, s) = tiles.fold(a, d).unwrap();
+            let (wp, ws) = two_row_dp(a, d).unwrap();
+            assert_eq!((p.to_bits(), s.to_bits()), (wp.to_bits(), ws.to_bits()), "at {a} vs {d}");
+        }
+    }
 }
