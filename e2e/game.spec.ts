@@ -91,7 +91,7 @@ test('the board fits the Safari viewport without scrolling', async ({ page }, in
     return { x: el.scrollWidth - innerWidth, y: el.scrollHeight - innerHeight }
   })
   expect(overflow).toEqual({ x: 0, y: 0 })
-  for (const sel of ['#menu', '#mstrip', '#cv', '#status', '#endturn']) await inViewport(page, sel)
+  for (const sel of ['#menu', '#mstrip', '#cv', '#bolt', '#endturn']) await inViewport(page, sel)
 
   // Every node, with its radius, is inside the canvas.
   const outside = await page.evaluate(() => {
@@ -112,12 +112,33 @@ test('the board fits the Safari viewport without scrolling', async ({ page }, in
 test('tapping a node then a target attacks it', async ({ page }) => {
   const [from, to] = await anyAttack(page)
   await tapNode(page, from)
-  await expect(page.locator('#status')).toHaveText('Tap or drag to a target.')
+  expect(await page.evaluate(() => window.__nw.board.selected)).toBe(from)
   await tapNode(page, to)
   await ready(page)
   const { round } = await current(page)
   expect(round.you.moves.map((m: any) => m.a)).toEqual([[from, to]])
-  await expect(page.locator('#status')).toHaveText(/Captured!|Repelled\./)
+})
+
+test('the bolt toggles instant animations and remembers it', async ({ page }) => {
+  const bolt = page.locator('#bolt')
+  await expect(bolt).toHaveAttribute('aria-pressed', 'true') // the tests start on instant
+  await bolt.tap()
+  await expect(bolt).toHaveAttribute('aria-pressed', 'false')
+  expect(await page.evaluate(() => [window.__nw.board.speed, localStorage.getItem('nwSpeed')]))
+    .toEqual([0.25, 'fast'])
+  await bolt.tap()
+  expect(await page.evaluate(() => [window.__nw.board.speed, localStorage.getItem('nwSpeed')]))
+    .toEqual([0, 'instant'])
+})
+
+test('animations default to fast', async ({ page, browser }) => {
+  const context = await browser.newContext(iphone18ProSafari) // no stored setting
+  const fresh = await context.newPage()
+  await fresh.goto(page.url())
+  await ready(fresh)
+  await expect(fresh.locator('#bolt')).toHaveAttribute('aria-pressed', 'false')
+  expect(await fresh.evaluate(() => window.__nw.board.speed)).toBe(0.25)
+  await context.close()
 })
 
 test('reloading resumes the seed in progress', async ({ page }) => {

@@ -26,7 +26,7 @@ function tint(hex, white, alpha = 1) {
   return `rgba(${rgb.map(c => Math.round(c + (255-c)*white)).join(',')},${alpha})`;
 }
 export const ORDER = ['red','green','yellow','blue','purple'];
-export const SPEEDS = { instant: 0, fast: 0.25, medium: 1, slow: 2 };  // sleep-time multiplier
+export const SPEEDS = { instant: 0, fast: 0.25 };  // sleep-time multiplier
 
 export const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export const cap = (s) => s[0].toUpperCase() + s.slice(1);

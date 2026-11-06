@@ -205,8 +205,8 @@
     (`sweep_audit.py`, `sweep_variants.py`, `sweep_final.py`). On top of the
     certificate the page withholds the offer until RED holds a strict board majority
     (more nodes than all bots combined — median offer 16 RED nodes vs 15 under the
-    old plain-lead rule), and shows it in the footer in place of the status line so
-    it never covers the board.
+    old plain-lead rule), and shows it in the footer between the bolt (the
+    instant-animation toggle) and End Turn so it never covers the board.
   - Deploy: `wrangler.jsonc` serves `solver/build_site.py`'s `_site/` as an
     assets-only Cloudflare Worker (`npm run deploy`). Locally, serve `public/` with
     any static server (`cd public && python3 -m http.server`).

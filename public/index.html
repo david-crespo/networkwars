@@ -37,8 +37,6 @@
   #menupop .mi:active { background:rgba(255,255,255,.09); }
   #menupop .mi.sel { color:#bfe; }
   #menupop .mi.sel::after { content:'✓'; color:var(--teal); font-weight:800; }
-  #menupop .lbl { padding:9px 12px 4px; font-size:11px; text-transform:uppercase;
-    letter-spacing:.05em; color:#6fae9e; }
   #menupop .div { height:1px; background:rgba(255,255,255,.08); margin:5px 6px; }
   #chips { flex:1; display:flex; justify-content:center; gap:12px; }
   .chip { position:relative; width:34px; height:34px;
@@ -98,16 +96,22 @@
   .act:active { opacity:.55; }
   .act.off { opacity:.3; pointer-events:none; }
   #endturn { font-size:20px; }
-  #status { color:#8fcfb8; font-size:12px; flex:1; text-align:center; padding:0 6px; }
+  /* animation speed: off = fast, on = instant */
+  #bolt { flex:0 0 auto; width:40px; height:40px; margin-left:-8px; padding:8px; border:0;
+    background:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  #bolt svg { display:block; width:100%; height:100%; fill:none; stroke:var(--teal);
+    stroke-width:1.8; stroke-linejoin:round; opacity:.45; transition:opacity .15s, fill .15s; }
+  #bolt[aria-pressed="true"] svg { fill:var(--yellow); stroke:var(--yellow); opacity:1;
+    filter:drop-shadow(0 0 6px var(--yellow)); }
+  #bolt:active svg { opacity:.3; }
 
-  /* sweep-up offer: takes the status line's slot in the footer, next to End Turn,
+  /* sweep-up offer: sits in the footer between the bolt toggle and End Turn,
      so it never covers the board — the mop-up policy wins this position
      1000/1000 times, offer to run it. */
   #sweep { flex:1; min-width:0; display:none; align-items:center; gap:4px;
     padding:2px 4px 2px 12px; background:#04140c; border:1px solid var(--green);
     border-radius:10px; box-shadow:0 0 14px -6px var(--green); font-size:13px; }
   #sweep.show { display:flex; animation:blup .18s ease-out; }
-  #sweep.show + #status { display:none; }
   @keyframes blup { from { transform:translateY(6px); opacity:0; } to { transform:none; opacity:1; } }
   #sw-text { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #sw-text b { color:var(--green); font-size:14px; margin-right:6px; }
@@ -257,12 +261,6 @@
         <div class="div"></div>
         <div class="mi" id="mi-sweep">Sweep-Up Offer</div>
         <div class="div"></div>
-        <div class="lbl">Animation speed</div>
-        <div class="mi sp" data-speed="instant">Instant</div>
-        <div class="mi sp" data-speed="fast">Fast</div>
-        <div class="mi sp" data-speed="medium">Classic</div>
-        <div class="mi sp" data-speed="slow">Slow</div>
-        <div class="div"></div>
         <div class="mi" id="mi-export">Save Data (JSON)</div>
         <div class="mi" id="mi-import">Load Data (JSON)&hellip;</div>
         <div class="mi" id="mi-errors">Errors<span id="mi-errn"></span></div>
@@ -284,12 +282,14 @@
   </div>
 
   <footer>
+    <button id="bolt" type="button" aria-label="Instant animations" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 4.5 13.5h6.5L9.5 22l9.5-12h-6.5z"/></svg>
+    </button>
     <div id="sweep">
       <div id="sw-text"><b>1000/1000</b><span id="sw-sub">wins</span></div>
       <div class="act" id="sw-go">Sweep</div>
       <div class="act" id="sw-x">&#10005;</div>
     </div>
-    <div id="status">—</div>
     <div class="act" id="endturn">End Turn</div>
   </footer>
 </div>
@@ -651,7 +651,6 @@ function renderStrip() {
     + ` · <span class="a">AI ${s.aw}–${s.al}</span>`;
 }
 
-const setStatus = (t) => { $('status').textContent = t; };
 function resize() {
   // The AI badge overlays the canvas top-right; keep the board clear of it so it
   // never covers nodes on short viewports (the inset is a no-op when centering
@@ -777,21 +776,6 @@ async function aiPlaySeed(i) {
   save();
   renderStrip();
   refreshSeedPanel(i);                  // an analysis open on this seed fills in now
-  // If you already finished this seed, the pair is complete — reveal it.
-  if (r.you.result) revealPair(i);
-}
-
-// A finished pair is the only informative unit: say so, without nagging.
-function revealPair(i) {
-  const r = M.rounds[i];
-  if (i !== M.idx - 1 && i !== M.idx) return;      // only chatter about the recent one
-  if (!r.you.result || !r.ai.result) return;
-  if (r.you.result === r.ai.result)
-    setStatus(r.you.result === 'won' ? `Seed ${i + 1}: you both won it.`
-                                     : `Seed ${i + 1}: you both lost it — dice, not you.`);
-  else
-    setStatus(r.you.result === 'won' ? `Seed ${i + 1}: you won it, the AI didn't.`
-                                     : `Seed ${i + 1}: the AI won the seed you lost.`);
 }
 
 // ============================ your play ============================
@@ -833,7 +817,6 @@ async function startSeed() {
   save();
   adopt(res); resize(); renderStrip();
   sampleHist(r.you, res); save();
-  setStatus('Select a red node to attack.');
   thinkStart();
   aiPump();                                    // the AI starts this seed too, right now
 }
@@ -855,15 +838,12 @@ async function replayAnimation(run) {
 async function yourAttack(from, to) {
   inputLocked = true; board.abort = false; cancelSweepOffer();
   board.selected = null; board.battle = { from, to }; board.draw();
-  setStatus('Attacking…');
   cur().you.moves.push(timed({ a: [from, to], l: mkLabel(state, from, to) }));
   const res = await api(`/api/game/${state.id}/attack`, 'POST', { from, to });
   const e = res.log && res.log[0];
   if (e && e.flips && !board.instant) await replayAnimation(() => board.animateBattle(e));
   board.battle = null;
   adopt(res); sampleHist(cur().you, res); save();
-  // No node ids (the board never labels them) and no repel remnant (always 1).
-  setStatus(e ? (e.captured ? 'Captured!' : 'Repelled.') : 'Done.');
   inputLocked = false;
   if (recordEnd(cur().you, res)) await afterYourGame();
   else { thinkStart(); maybeOfferSweep(); }
@@ -873,14 +853,12 @@ async function yourEndTurn() {
   if (!state || state.over || inputLocked) return;
   inputLocked = true; board.abort = false; cancelSweepOffer();
   board.selected = null; board.draw();
-  setStatus('Ending turn…');
   cur().you.moves.push(timed({ e: 1 }));
   const res = await api(`/api/game/${state.id}/end-turn`, 'POST');
-  if (res.events && res.events.length && !board.instant) await replayAnimation(() => board.animateEndTurn(res, setStatus));
+  if (res.events && res.events.length && !board.instant) await replayAnimation(() => board.animateEndTurn(res));
   inputLocked = false;
   adopt(res); sampleHist(cur().you, res); save();
   if (recordEnd(cur().you, res)) { await afterYourGame(); return; }
-  setStatus('Your move.');
   thinkStart();
   maybeOfferSweep();
 }
@@ -892,11 +870,7 @@ async function afterYourGame() {
   // Start this review even when the backlog pump is waiting on an older game.
   // Worker priority yields at the next complete search, preserving its grades.
   runReview(i).then(scorePump);
-  setStatus(lost ? 'You lost this seed.' : 'You WON this seed.');
-  await sleep(1000);
-  if (r.ai.result) revealPair(i);
-  else setStatus('AI still playing — next seed dealt.');
-  await sleep(lost ? 600 : 1400);
+  await sleep(lost ? 1600 : 2400);   // a look at the final board
   // straight on to the next seed; the AI catches up in its own time
   M.rounds.push(blankRound(randSeed()));
   M.idx = M.rounds.length - 1;
@@ -943,13 +917,10 @@ $('cv').addEventListener('pointerdown', (ev) => {
     return;
   }
   if (n.owner === 'red' && n.strength > 1 && board.targetsFor.has(n.id)) {
-    board.selected = n.id; setStatus('Tap or drag to a target.');
+    board.selected = n.id;
     drag = { from: n.id, pid: ev.pointerId, at: p };
     $('cv').setPointerCapture(ev.pointerId);
-  } else {
-    board.selected = null;
-    if (n.owner === 'red') setStatus('No attackable neighbors.');
-  }
+  } else board.selected = null;
   board.draw();
 });
 // Where a drag from `from` currently points: an exact hit on the origin or a target,
@@ -981,13 +952,25 @@ function dragUp(ev) {
   if (tgt && !inputLocked && !sweeping) {          // released on/near a highlighted target
     yourAttack(from, tgt.id); return;
   }
-  if (retap && n && n.id === from) { board.selected = null; setStatus('Select a red node to attack.'); }
+  if (retap && n && n.id === from) board.selected = null;
   board.draw();
 }
 $('cv').addEventListener('pointerup', dragUp);
 for (const ev of ['contextmenu', 'selectstart']) $('cv').addEventListener(ev, (e) => e.preventDefault());
 $('cv').addEventListener('pointercancel', (ev) => { if (drag && ev.pointerId === drag.pid) { endDrag(); board.draw(); } });
 $('endturn').onclick = () => { if (!sweeping) yourEndTurn(); };
+// Animation speed is the bolt next to End Turn: off = fast, on = instant.
+let instant = false;
+function setInstant(on) {
+  instant = on;
+  board.speed = on ? SPEEDS.instant : SPEEDS.fast;
+  $('bolt').setAttribute('aria-pressed', String(on));
+}
+try { setInstant(localStorage.getItem('nwSpeed') === 'instant'); } catch (_) { setInstant(false); }
+$('bolt').onclick = () => {
+  setInstant(!instant);
+  try { localStorage.setItem('nwSpeed', instant ? 'instant' : 'fast'); } catch (_) {}
+};
 $('aibadge').onclick = () => showResults();
 
 // ============================ sweep-up ============================
@@ -1064,8 +1047,6 @@ async function runSweep() {
     }
   } finally {
     sweeping = false;
-    if (bailed && state && state.id === gid && !state.over)
-      setStatus('Sweep stopped — no longer a sure win.');
   }
 }
 
@@ -1639,26 +1620,9 @@ async function scorePump() {
 }
 
 // ============================ menu (hamburger) ============================
-// Seed sharing, the sweep-up toggle, and the animation-speed picker (moved here
-// from the footer).
-let speedName = 'medium';
-try { const v = localStorage.getItem('nwSpeed'); if (v && v in SPEEDS) speedName = v; } catch (_) {}
-board.speed = SPEEDS[speedName];
+// Seed sharing, the sweep-up toggle and data export/import.
 const menupop = $('menupop');
-function renderSpeedMenu() {
-  document.querySelectorAll('#menupop .sp').forEach(el =>
-    el.classList.toggle('sel', el.dataset.speed === speedName));
-}
-renderSpeedMenu();
 $('menu').onclick = () => menupop.classList.toggle('show');
-document.querySelectorAll('#menupop .sp').forEach(el => {
-  el.onclick = () => {
-    speedName = el.dataset.speed;
-    board.speed = SPEEDS[speedName];
-    try { localStorage.setItem('nwSpeed', speedName); } catch (_) {}
-    renderSpeedMenu();                   // leave the menu open so the check is visible
-  };
-});
 document.addEventListener('click', (e) => {
   if (menupop.classList.contains('show') && !$('menuwrap').contains(e.target))
     menupop.classList.remove('show');
@@ -1671,7 +1635,7 @@ document.addEventListener('click', (e) => {
 $('mi-copy').onclick = async () => {
   menupop.classList.remove('show');
   const seed = cur().seed;
-  try { await navigator.clipboard.writeText(String(seed)); setStatus(`Seed ${seed} copied.`); }
+  try { await navigator.clipboard.writeText(String(seed)); }
   catch (_) { prompt('Copy the seed:', String(seed)); }   // clipboard blocked — show it instead
 };
 $('mi-paste').onclick = async () => {
@@ -1680,7 +1644,7 @@ $('mi-paste').onclick = async () => {
   const v = prompt('Paste a seed to play it as this round:');
   if (v == null) return;
   const seed = parseInt(String(v).trim(), 10);
-  if (!Number.isInteger(seed) || seed < 1 || seed > 0x7fffffff) { setStatus('Not a valid seed.'); return; }
+  if (!Number.isInteger(seed) || seed < 1 || seed > 0x7fffffff) { alert('Not a valid seed.'); return; }
   const r = cur();
   if (r.you.moves.length && !r.you.result && !confirm('Abandon the seed in progress?')) return;
   M.rounds[M.idx] = blankRound(seed);
@@ -1733,16 +1697,16 @@ importInput.onchange = async () => {
   importInput.value = '';
   if (!file) return;
   let data;
-  try { data = JSON.parse(await file.text()); } catch (_) { setStatus('Not a JSON file.'); return; }
+  try { data = JSON.parse(await file.text()); } catch (_) { alert('Not a JSON file.'); return; }
   const t = data?.tally;
   if (data?.app !== 'network-wars-h2h' || !t || !Array.isArray(t.rounds) || !t.rounds.length
       || !Number.isInteger(t.idx) || !t.rounds[t.idx]) {
-    setStatus('Not a Network Wars data export.'); return;
+    alert('Not a Network Wars data export.'); return;
   }
   if (!confirm(`Replace this tally (${M.rounds.length} seeds) with the file's (${t.rounds.length} seeds)?`)) return;
   const old = M;
   M = t;
-  if (!save()) { M = old; save(); setStatus('Could not store the imported tally.'); return; }
+  if (!save()) { M = old; save(); alert('Could not store the imported tally.'); return; }
   saveFrozen = true;
   for (const k of SETTINGS) {
     const v = data.settings?.[k];
@@ -1866,7 +1830,6 @@ async function resume() {
   save();
   adopt(s); resize(); renderStrip();
   if (recordEnd(r.you, s)) { await afterYourGame(); return; }
-  setStatus('Resumed. Your move.');
   thinkStart();                                  // restart the clock after the replay
 }
 
