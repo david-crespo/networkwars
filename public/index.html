@@ -68,6 +68,8 @@
   .err-msg { font:12px/1.4 ui-monospace, Menlo, monospace; color:#ffb3bc;
     word-break:break-word; white-space:pre-wrap; margin-top:2px; }
   .err.prev .err-msg { color:#c9a3a9; }
+  .err-trail { font:11px/1.4 ui-monospace, Menlo, monospace; color:#7fb6a6;
+    white-space:pre-wrap; margin-top:4px; }
   #err-ctx { font:11px/1.45 ui-monospace, Menlo, monospace; color:#7fb6a6;
     white-space:pre-wrap; word-break:break-word; margin-top:14px; }
 
@@ -382,6 +384,11 @@ function note(ev, detail) {
   if (diag.events.length > 400) diag.events.splice(0, 100);
 }
 document.addEventListener('visibilitychange', () => note(document.visibilityState));
+// What the player last touched, for the trail on each error (see reportError).
+document.addEventListener('pointerup', (e) => {
+  const el = e.target.closest?.('[id]');
+  note('tap', { on: el?.id || e.target.tagName?.toLowerCase() });
+}, true);
 
 // ---- errors, surfaced on screen: a phone has no console, so every failure the
 // page can see (uncaught errors, a worker that dies or stops answering, an AI seed
@@ -389,7 +396,8 @@ document.addEventListener('visibilitychange', () => note(document.visibilityStat
 // the menu's Errors item, which lists them. Each carries the release that raised
 // it. Kept in their own small localStorage key so they survive iOS reloading the
 // tab; earlier sessions' entries are marked `prev`. Repeats of the same message
-// count up instead of stacking.
+// count up instead of stacking. Each keeps a `trail`: the diagnostics events
+// (taps, AI and visibility changes) just before it, timed from page load.
 const ERR_KEY = 'nwErrors', ERR_MAX = 60;
 try { diag.errors = (JSON.parse(localStorage.getItem(ERR_KEY)) || []).map(e => ({ ...e, prev: 1 })); }
 catch (_) { diag.errors = []; }
@@ -397,8 +405,10 @@ function reportError(src, msg) {
   msg = String(msg).slice(0, 600);
   const at = new Date().toISOString();
   const same = diag.errors.find(e => !e.prev && e.src === src && e.msg === msg);
-  if (same) { same.n++; same.at = at; }
-  else diag.errors.push({ src, msg, n: 1, at, v: RELEASE });
+  const trail = diag.events.slice(-8).map(({ t, ev, ...d }) =>
+    `${t.toFixed(1)}s ${ev} ${Object.entries(d).map(([k, v]) => `${k}=${v}`).join(' ')}`.trim());
+  if (same) { same.n++; same.at = at; same.trail = trail; }
+  else diag.errors.push({ src, msg, n: 1, at, v: RELEASE, trail });
   if (diag.errors.length > ERR_MAX) diag.errors.splice(0, diag.errors.length - ERR_MAX);
   note('error', { src, msg });
   try { localStorage.setItem(ERR_KEY, JSON.stringify(diag.errors)); } catch (_) {}
@@ -410,8 +420,13 @@ const errMsg = (e) => {
   const st = e.stack || '';
   return st.includes(e.message) ? st : `${e.message}\n${st}`;
 };
-window.addEventListener('error', (e) => reportError('page',
-  `${e.message}${e.filename ? ` @ ${e.filename.split('/').pop()}:${e.lineno}` : ''}`));
+// A bare "Script error." is the browser hiding an error from a script of another
+// origin (a Safari extension, say): the page's own scripts always give details.
+window.addEventListener('error', (e) => {
+  const where = e.filename ? ` @ ${e.filename.split('/').pop()}:${e.lineno}:${e.colno}` : '';
+  reportError('page', e.error instanceof Error ? `${errMsg(e.error)}${where}`
+    : `${e.message}${where}${where ? '' : ' (from a script outside the page; the browser hides its details)'}`);
+});
 window.addEventListener('unhandledrejection', (e) => reportError('page', errMsg(e.reason)));
 
 // ---- offline: sw.js caches the page + engine (see its header). Not an app error if
@@ -1776,6 +1791,12 @@ function fillErrPanel() {
     msg.className = 'err-msg';
     msg.textContent = e.msg;
     row.append(meta, msg);
+    if (e.trail?.length) {
+      const trail = document.createElement('div');
+      trail.className = 'err-trail';
+      trail.textContent = e.trail.join('\n');
+      row.append(trail);
+    }
     list.appendChild(row);
   }
   $('err-ctx').textContent = errContext();
@@ -1789,7 +1810,8 @@ $('mi-errors').onclick = () => {
 $('err-close').onclick = () => $('ov-err').classList.remove('show');
 $('err-copy').onclick = async () => {
   const text = diag.errors.map(e => `${e.at} ${e.src}${e.n > 1 ? ` x${e.n}` : ''}`
-    + `${e.prev ? ' (earlier session)' : ''} [${e.v ? short(e.v) : 'old'}]\n${e.msg}`)
+    + `${e.prev ? ' (earlier session)' : ''} [${e.v ? short(e.v) : 'old'}]\n${e.msg}`
+    + (e.trail?.length ? `\nbefore it:\n${e.trail.join('\n')}` : ''))
     .join('\n\n') + '\n\n' + errContext();
   try {
     await navigator.clipboard.writeText(text);
