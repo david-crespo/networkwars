@@ -75,20 +75,20 @@ footer { display:flex; justify-content:space-between; align-items:center; gap:8p
   background:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
 #bolt svg { display:block; width:100%; height:100%; fill:none; stroke:var(--teal);
   stroke-width:1.8; stroke-linejoin:round; opacity:.45; transition:opacity .15s, fill .15s; }
-#bolt[aria-pressed="true"] svg { fill:var(--yellow); stroke:var(--yellow); opacity:1;
-  filter:drop-shadow(0 0 6px var(--yellow)); }
+#bolt[aria-pressed="true"] svg { fill:var(--teal); stroke:var(--teal); opacity:1;
+  filter:drop-shadow(0 0 6px var(--teal)); }
 #bolt:active svg { opacity:.3; }
 
 /* sweep-up offer: sits in the footer between the bolt toggle and End Turn,
    so it never covers the board — the mop-up policy wins this position
    1000/1000 times, offer to run it. */
 #sweep { flex:1; min-width:0; display:none; align-items:center; gap:4px;
-  padding:2px 4px 2px 12px; background:#04140c; border:1px solid var(--green);
-  border-radius:10px; box-shadow:0 0 14px -6px var(--green); font-size:13px; }
+  padding:2px 4px 2px 12px; background:#04140c; border:1px solid var(--teal);
+  border-radius:10px; box-shadow:0 0 14px -6px var(--teal); font-size:13px; }
 #sweep.show { display:flex; animation:blup .18s ease-out; }
 @keyframes blup { from { transform:translateY(6px); opacity:0; } to { transform:none; opacity:1; } }
 #sw-text { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-#sw-text b { color:var(--green); font-size:14px; margin-right:6px; }
+#sw-text b { color:#e9f7f0; font-size:14px; margin-right:6px; }
 #sw-sub { color:#cfe; }
 #sweep .act { padding:6px 8px; flex:0 0 auto; }
 #sw-x { color:#7fb6a6; font-weight:800; }
@@ -131,7 +131,7 @@ footer { display:flex; justify-content:space-between; align-items:center; gap:8p
 #score { display:flex; gap:10px; margin:0 0 16px; }
 .sc { flex:1; text-align:center; padding:12px 6px; border-radius:11px;
   background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); }
-.sc.lead { border-color:var(--green); box-shadow:0 0 18px -8px var(--green); }
+.sc.lead { border-color:var(--teal); box-shadow:0 0 18px -8px var(--teal); }
 .sc .who { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#7fb6a6; }
 .sc .n { font-size:28px; font-weight:800; color:#e9f7f0; line-height:1.25;
   font-variant-numeric:tabular-nums; }
@@ -146,8 +146,8 @@ footer { display:flex; justify-content:space-between; align-items:center; gap:8p
 .srow .vs { font-size:13px; font-weight:700; margin-top:2px; }
 .tag { display:inline-block; padding:1px 6px; border-radius:5px; font-size:11px;
   font-weight:800; letter-spacing:.03em; }
-.tag.won { background:rgba(54,211,154,.16); color:var(--green); }
-.tag.lost { background:rgba(255,77,94,.16); color:var(--red); }
+.tag.won { background:rgba(95,208,214,.16); color:var(--teal); }
+.tag.lost { background:rgba(255,159,69,.16); color:#ff9f45; }
 .tag.none { background:rgba(255,255,255,.07); color:#7fb6a6; }
 .srow .loss { font-size:11px; color:#7fb6a6; margin-top:2px; }
 .srow .go { color:var(--teal); font-weight:800; flex:0 0 auto; font-size:15px; }
@@ -176,7 +176,7 @@ canvas.pg { display:block; width:100%; height:112px; background:rgba(255,255,255
 
 #sk { height:150px; }
 #sklegend b { color:#e9f7f0; font-variant-numeric:tabular-nums; }
-#sklegend[data-state="better"] b { color:var(--green); }
+#sklegend[data-state="better"] b { color:var(--teal); }
 #sklegend[data-state="worse"] b { color:#ff9f45; }
 
 /* inspector: one screen, no scrolling. The board takes whatever height the tabs,

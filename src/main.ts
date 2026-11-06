@@ -1126,7 +1126,7 @@ function paintSel() {
 }
 
 // Your move's grade beside the caption, with the search's preferred move drawn on
-// the board in green. The AI's moves carry the win% its own search reported.
+// the board dashed in white. The AI's moves carry the win% its own search reported.
 function paintGrade() {
   const el = $('ibgrade'), side = sdSide(), mv = side.moves[sdSel];
   el.onclick = null;

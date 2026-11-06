@@ -74,7 +74,7 @@ export function nodeHeight(strength: number, r: number) {
   return strength > 0 ? r * LIFT * Math.min(1, Math.log2(1 + strength) / Math.log2(25)) : 0;
 }
 const LIFT = .42, MAX_R = 26;
-const HOVER = '#ffd36b', REVIEW = '#effff8';
+const HOVER = '#5fd0d6', REVIEW = '#effff8';
 
 // Paint a tiny starting-board thumbnail (faction-colored dots laid out by x,y).
 // Used by the per-seed scoreboard rows and the AI-progress badge.
@@ -137,7 +137,7 @@ export class Board {
     this.hoverMove = null;          // {from,to} previewed on the grid
     this.bestMove = null;           // {from,to} a review's preferred move
     this.reviewColors = false;      // a review: moves in white, no faction hues (the
-                                    // played move solid, the best dashed), not the play preview's gold
+                                    // played move solid, the best dashed), not the play preview's teal
     this.pad = 38;                  // px kept clear around the board
     this.dragTo = null;             // {x,y} canvas pt: a drag-to-attack in progress from `selected`
 
@@ -464,7 +464,7 @@ export class Board {
         (battle.elapsed % TIMING.arrow) / TIMING.arrow, hf, ht, this.light);
     }
 
-    // a review's preferred move, in green beside the played one
+    // a review's preferred move, dashed white beside the played one
     if (bestMove?.from != null && bestMove.to != null && pos[bestMove.from] && pos[bestMove.to])
       this._drawArrow(pos[bestMove.from], pos[bestMove.to], REVIEW, null,
         heights[bestMove.from], heights[bestMove.to], .7);
