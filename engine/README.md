@@ -1,38 +1,35 @@
 # Rust engine
 
 `solver/fast_engine.c` in Rust: the whole engine and search, bit-identical to
-the C built without FMA contraction (emcc `-O3`, or native clang
-`-O3 -ffp-contract=off`), exporting the C ABI so every existing client, gate
-and bench runs against it unchanged. The site still ships the C build
-(`src/fast_engine.js`).
+the C built without FMA contraction (native clang `-O3 -ffp-contract=off`, or
+emcc `-O3`), exporting the same C ABI. The site runs its WASM build
+(`src/nw_engine.wasm`, committed because Workers Builds has no Rust toolchain),
+about 1.9x faster than the C compiled to WASM. The native lab in `solver/`
+still uses the C; a rules or search change goes in both.
 
 - `nw-core/`: the engine, no globals. `Engine` holds the topology, battle DP
   tables, both dice streams, and the search.
 - `nw-abi/`: the C ABI (same names and signatures) over one global `Engine`;
-  builds `libnw_engine.dylib` and `nw_engine.wasm`.
-- `pkg/shim.mjs`: emscripten-shaped factory over the wasm, a drop-in for
-  `src/fast_engine.js`. `pkg/use-rust-engine.mjs` is a node loader hook that
-  redirects `src/fast_engine.js` to it, for gates that import it directly.
+  builds `libnw_engine.dylib` and `nw_engine.wasm`, which `src/fastnw.ts`
+  loads.
 
 ```sh
-engine/build.sh    # native dylib, pkg/nw_engine.wasm, and the no-contraction C reference
+engine/build.sh    # src/nw_engine.wasm, the native dylib, and the no-contraction C reference
+
+# differential tests against the C reference (NW_C_ENGINE overrides the path)
+(cd engine && cargo nextest run --release)
 
 # native parity + timing
 uv run --project solver python solver/search_bench.py engine/target/c/fast_engine_nocontract.so engine/target/release/libnw_engine.dylib
 NW_ENGINE_SO=$PWD/engine/target/release/libnw_engine.dylib uv run --project solver python solver/validate_fast.py
 uv run --project solver python engine/time_native.py solver/fast_engine.so engine/target/release/libnw_engine.dylib
 
-# wasm parity + timing
-node solver/search_bench.mjs src/fast_engine.js engine/pkg/shim.mjs
-node solver/latency_bench.mjs src/fast_engine.js engine/pkg/shim.mjs
-node --import=$PWD/engine/pkg/use-rust-engine.mjs solver/worker_gate.mjs 40   # also wasm_gate, rules_worker_gate, yield_gate, review_gate
-NODE_OPTIONS=--import=$PWD/engine/pkg/use-rust-engine.mjs uv run --project solver python solver/validate_wasm.py
+# wasm: copy the committed build aside before changing the engine, then
+node solver/search_bench.mjs /tmp/before.wasm src/nw_engine.wasm
+node solver/latency_bench.mjs /tmp/before.wasm src/nw_engine.wasm
 
-# differential tests against the C reference (NW_C_ENGINE overrides the path)
-(cd engine && cargo nextest run --release)
-
-# speed: µs/sim on fixed searches in node, Chromium and WebKit (any .js/.wasm builds)
-node engine/bench/browser_bench.mjs node,chromium,webkit c=src/fast_engine.js rust=engine/pkg/nw_engine.wasm
+# speed: µs/sim on fixed searches in node, Chromium and WebKit (any .wasm builds)
+node engine/bench/browser_bench.mjs node,chromium,webkit before=/tmp/before.wasm after=src/nw_engine.wasm
 GAMES=108,374 node engine/bench/browser_bench.mjs node    # whole games: total and slowest search
 (cd engine && cargo run --release --example bench)        # native µs/sim + digest
 (cd engine && cargo run --release --example games -- 2000 108 374)

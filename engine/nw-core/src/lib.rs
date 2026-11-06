@@ -1,6 +1,6 @@
 //! Network Wars engine and open-loop UCT search: a Rust port of
 //! `solver/fast_engine.c`, kept bit-identical to its strict-IEEE builds
-//! (emcc `-O3`, or native clang with `-ffp-contract=off`).
+//! (native clang with `-ffp-contract=off`, or emcc `-O3`).
 //!
 //! The C file keeps everything in globals. Here each piece of state has an
 //! owner: [`Topology`] (adjacency), [`CapTables`] (exact battle DP), the two

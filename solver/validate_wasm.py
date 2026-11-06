@@ -1,15 +1,17 @@
 """WASM parity + regression gate.
 
-Proves the in-browser WASM build of fast_engine.c is faithful to the native engine:
+Proves the in-browser engine (src/nw_engine.wasm, the Rust port in engine/) is faithful
+to the native C engine:
   1. board-gen BIT-PARITY: new_game(seed) owner/strength fingerprints match native
      for every seed (board-gen is pure integer math + an exact pow-of-2 divide, so it
      reproduces bit-for-bit across native-arm64 and wasm32).
   2. WASM structural + battle invariants + determinism (run by solver/wasm_gate.mjs,
      mirroring validate_fast.py).
 
-(The C-UCT search itself is NOT bit-checked across architectures: -ffast-math lets the
+(The C-UCT search is NOT bit-checked against fast_engine.so: -ffast-math lets the
 FP-heavy PUCT math reorder, so rankings can differ by ties — expected, not a bug. The
-search's correctness is covered by the offline winrate evals, not this gate.)
+Rust search is bit-checked against the strict-IEEE C build by `cargo nextest run` in
+engine/; its strength is covered by the offline winrate evals.)
 
 Run: uv run python solver/validate_wasm.py [nseeds]
 """

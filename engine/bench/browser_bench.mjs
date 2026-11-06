@@ -2,26 +2,24 @@
 // Chromium (V8) and headless WebKit (JavaScriptCore, the iPhone engine), and check
 // that every build's results are identical to the first one's.
 //   node engine/bench/browser_bench.mjs [browsers=node,chromium,webkit] [name=path ...]
-// A path is an emscripten module (.js, e.g. src/fast_engine.js) or a Rust build
-// (.wasm, wrapped by engine/pkg/shim.mjs). Default: c=src/fast_engine.js
-// rust=engine/pkg/nw_engine.wasm. Browsers need the sandbox off.
+// Each path is a .wasm build (default: site=src/nw_engine.wasm); copy the committed
+// one aside first to compare a change against it. Browsers need the sandbox off.
 // GAMES=374,108 plays those whole games once per engine instead (core.games), and
 // reports each game's total and slowest search.
 //
-// In the browsers every engine is injected as eval'd source, not loaded as a module:
+// In the browsers every engine is injected as eval'd source, not fetched:
 // in Playwright's WebKit (26.5, 2026-09), any script fetched over the network
 // (module or classic, routed or blob:) ran a plain typed-array loop ~44x slower than
 // the same code eval'd or inlined.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { chromium, webkit } from 'playwright';
 import * as core from './bench_core.mjs';
 
 const root = new URL('../../', import.meta.url);
 const [browserArg = 'node,chromium,webkit', ...engineArgs] = process.argv.slice(2);
 const which = browserArg.split(',');
-const specs = engineArgs.length ? engineArgs : ['c=src/fast_engine.js', 'rust=engine/pkg/nw_engine.wasm'];
+const specs = engineArgs.length ? engineArgs : ['site=src/nw_engine.wasm'];
 const ENGINES = Object.fromEntries(specs.map(s => {
   const [name, path] = s.split('=');
   return [name, resolve(new URL(root).pathname, path)];
@@ -81,24 +79,18 @@ function report(where, out) {
 }
 
 const read = path => readFileSync(path, 'utf8');
-const shim = read(new URL('engine/pkg/shim.mjs', root));
 const unmodule = src => src.replace(/^import .*;$/gm, '').replace(/^export (default )?/gm, '');
+const instantiate = async bytes => (await WebAssembly.instantiate(bytes, {})).instance.exports;
 
 if (which.includes('node')) {
-  const { moduleFrom } = await import(new URL('engine/pkg/shim.mjs', root).href);
   const factories = {};
-  for (const [k, p] of Object.entries(ENGINES))
-    factories[k] = p.endsWith('.wasm') ? moduleFrom(async () => readFileSync(p)) : (await import(pathToFileURL(p).href)).default;
+  for (const [k, p] of Object.entries(ENGINES)) factories[k] = () => instantiate(readFileSync(p));
   show(`node ${process.version}`, await run(factories, core));
 }
 
-// Each engine as a classic-script expression that evaluates to its module factory.
-const source = path => path.endsWith('.wasm')
-  ? `(() => {const B64 = ${JSON.stringify(readFileSync(path).toString('base64'))};
-      ${unmodule(shim.slice(shim.indexOf('export function moduleFrom'), shim.indexOf('export default')))}
-      return moduleFrom(async () => Uint8Array.from(atob(B64), ch => ch.charCodeAt(0)));})()`
-  : `(() => {${read(path).replace('export default Module;', 'return Module;')
-      .replaceAll('import.meta.url', JSON.stringify('http://nw.test/fast_engine.js'))}})()`;
+// Each engine as a classic-script expression that evaluates to its factory.
+const source = path => `(() => {const B64 = ${JSON.stringify(readFileSync(path).toString('base64'))};
+  return async () => (await WebAssembly.instantiate(Uint8Array.from(atob(B64), ch => ch.charCodeAt(0)), {})).instance.exports;})()`;
 const BENCH_SOURCE = `(() => {${unmodule(read(new URL('bench_core.mjs', import.meta.url)))}\nreturn { searches, rollouts, games };})()`;
 for (const [name, type] of [['chromium', chromium], ['webkit', webkit]]) {
   if (!which.includes(name)) continue;

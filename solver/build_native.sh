@@ -3,7 +3,7 @@
 # Play is bit-identical to the plain -O3 build (PGO only changes code layout;
 # verified move-for-move on the fixed-seed fmcts benchmark) but ~3% faster on
 # Apple Silicon. Falls back to the plain one-liner if llvm-profdata is missing.
-# WASM is separate and must NOT use this (see build_wasm.sh).
+# The browser engine is the Rust port (engine/build.sh), not this.
 set -e
 cd "$(dirname "$0")"
 FLAGS="-O3 -ffast-math -shared -fPIC"

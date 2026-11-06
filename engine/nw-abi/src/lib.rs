@@ -455,7 +455,7 @@ pub unsafe extern "C" fn uct_search(
     })
 }
 
-// ---- WASM heap for JS clients (emscripten's `_malloc`/`_free`) ----
+// ---- WASM heap for JS clients (src/fastnw.ts) ----
 
 #[cfg(target_arch = "wasm32")]
 mod heap {

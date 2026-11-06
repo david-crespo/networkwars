@@ -1,8 +1,8 @@
 // Assets-only Worker: Cloudflare serves the built site (`vite build` into dist/)
 // with no Worker script. Built files under assets/ have content hashes in their
 // names (see public/_headers for caching). The WASM engine is the committed
-// src/fast_engine.js: after changing solver/fast_engine.c, run
-// solver/build_wasm.sh and commit its output.
+// src/nw_engine.wasm (Workers Builds has no Rust toolchain): after changing
+// engine/, run engine/build.sh and commit its output.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "networkwars",

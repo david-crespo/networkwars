@@ -44,11 +44,11 @@ Queue fixes address additional latency independently of this compute reduction:
   for an entire old game. Switching seeds and reloading replay saved AI actions
   without repeating their searches; suspended/finished worker games are deleted.
 
-Reproduction (save the previous built WASM module before rebuilding):
+Reproduction (copy the previous `src/nw_engine.wasm` aside before rebuilding):
 
 ```sh
-node solver/latency_bench.mjs /tmp/before.mjs public/fast_engine.js 11,16
-node solver/search_bench.mjs /tmp/before.mjs public/fast_engine.js 4 4000
+node solver/latency_bench.mjs /tmp/before.wasm src/nw_engine.wasm 11,16
+node solver/search_bench.mjs /tmp/before.wasm src/nw_engine.wasm 4 4000
 bash solver/check.sh
 ```
 

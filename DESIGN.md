@@ -117,10 +117,11 @@ their boards and dice are preserved. The version is stored with each new round.
 
 ## 8. Architecture
 
-- **Engine**: a single C implementation (`solver/fast_engine.c`) of all rules + board
-  generation + the C-UCT search. This is the source of truth; there is no separate JS
-  rules engine. It is compiled two ways: natively (`fast_engine.so`, driven by Python
-  ctypes via `fastnw.py`) and to **WASM** (`src/fast_engine.js`).
+- **Engine**: a C implementation (`solver/fast_engine.c`) of all rules + board
+  generation + the C-UCT search, and a bit-identical Rust port of it (`engine/`). There
+  is no JS rules engine. The C is built natively (`fast_engine.so`, driven by Python
+  ctypes via `fastnw.py`); the Rust is built to **WASM** (`src/nw_engine.wasm`) for the
+  browser, about 1.9x faster than the C compiled to WASM.
 - **Browser frontend**: `index.html` + `src/` are self-contained. The WASM engine + search run in a Web
   Worker (`engine.worker.ts`, which holds game state and speaks the `/api/game/*` contract
   over postMessage); `src/main.ts` is just canvas rendering and input. **No backend needed**

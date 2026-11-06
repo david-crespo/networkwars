@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Rebuild both engines and run the gameplay, search, replay, and UI gates.
+# Rebuild the engines and run the gameplay, search, replay, and UI gates.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 bash solver/build_native.sh
-bash solver/build_wasm.sh
+bash engine/build.sh
+(cd engine && cargo nextest run --release)
 
 check_dir=$(mktemp -d "${TMPDIR:-/tmp}/nw-check.XXXXXX")
 trap 'rm -rf "$check_dir"' EXIT

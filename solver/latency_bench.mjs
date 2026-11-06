@@ -1,15 +1,14 @@
 // Complete AI games + full-budget grading, before/after WASM with exact parity.
-// node solver/latency_bench.mjs /tmp/before.mjs src/fast_engine.js [11,16]
+// node solver/latency_bench.mjs /tmp/before.wasm src/nw_engine.wasm [11,16]
 import assert from 'node:assert/strict';
 import { loadEngine } from '../src/fastnw.ts';
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 const [before, after, seedArg = '11,16'] = process.argv.slice(2);
-if (!before || !after) throw new Error('Provide before and after WASM module paths');
+if (!before || !after) throw new Error('Provide before and after .wasm paths');
 const factories = [];
 for (const path of [before, after]) {
-  const { default: build } = await import(pathToFileURL(resolve(path)).href);
-  factories.push(() => loadEngine(build));
+  const bytes = await readFile(path);
+  factories.push(() => loadEngine(bytes));
 }
 for (const seed of seedArg.split(',').map(Number)) {
   const runs = [];

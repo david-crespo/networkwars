@@ -1,6 +1,6 @@
 # Network Wars — project instructions
 
-## Engine (one C source of truth; pure MCTS — RL/neural-net path was removed)
+## Engine (C reference + bit-identical Rust port; pure MCTS — RL/neural-net path was removed)
 - **Rules audit (2026-09-07):** `solver/RULES_AUDIT.md` records the current comparison
   against original ARM64. New games use recovered large-army single/pair/triple
   grouping (`rules: 2`), while `new_game_legacy` preserves unversioned/v1 saved
@@ -16,7 +16,13 @@
   neural net) is our best algorithm** — the AlphaZero/PufferLib training path was
   dropped (it plateaued below the search; findings in memory
   `alphago-levers-ruled-out`). No Gymnasium env or torch/pufferlib dependency.
-- **`solver/fast_engine.c` is the single implementation of everything**: board
+- **Two implementations, kept bit-identical**: `solver/fast_engine.c` (native, for the
+  Python lab) and its Rust port `engine/` (the browser's engine, `src/nw_engine.wasm`,
+  ~1.9x faster than the C compiled to WASM; see `engine/README.md`). A rules or search
+  change goes in BOTH; `(cd engine && cargo nextest run --release)` runs the
+  differential tests against the C built with `-ffp-contract=off` (Rust never
+  contracts to FMA), and `validate_wasm.py` checks board-gen parity vs native.
+- **`solver/fast_engine.c` implements everything**: board
   generation + the iOS deal, the four bots, the fair-coin-attrition battle,
   reinforcement, win check, and the open-loop C-UCT search (ranked **C1** rollout
   baked in, `c_puct=2.5`). The search has an opt-in **grading mode**
@@ -33,12 +39,13 @@
     (`npm run dev` / `npm run build` into `dist/`; `vite.config.ts`). `npm run typecheck` runs
     tsc (strict) over the page, the service worker and the node configs; the shared data
     shapes (worker replies, the saved tally) are in `src/types.ts`, the WASM exports in
-    `src/fast_engine.d.ts`. The node gates import the `.ts` sources directly (node strips
+    `src/fastnw.ts`. The node gates import the `.ts` sources directly (node strips
     the types), and `solver/page_slice.mjs` strips them from the slices of `src/main.ts`
-    that some gates run in a vm. `fast_engine.c` is compiled to
-    WASM (`src/fast_engine.js`, single-file ESM, wasm embedded) and runs IN THE
-    BROWSER inside a Web Worker. `src/fastnw.ts` is the JS marshalling layer (port
-    of `fastnw.py`); `src/engine.worker.ts` is the game/orchestration layer — it
+    that some gates run in a vm. The Rust engine is compiled to
+    WASM (`src/nw_engine.wasm`, committed: Workers Builds has no Rust toolchain; Vite
+    emits it as a hashed asset) and runs IN THE BROWSER inside a Web Worker.
+    `src/fastnw.ts` is the JS marshalling layer (port of `fastnw.py`; in node it reads
+    the .wasm from disk, since node's fetch can't read files); `src/engine.worker.ts` is the game/orchestration layer — it
     holds game state and speaks the `/api/game/*` contract via postMessage, so the page needs no server to play. Search runs
     in the worker so the UI never blocks (adaptive budget: floor ~2000 sims, ceiling
     ~150k, visit-margin early stop — see memory `adaptive-sims`).
@@ -261,10 +268,9 @@
   `cc -O3 -ffast-math -shared -fPIC solver/fast_engine.c -o solver/fast_engine.so`
   if llvm-profdata is missing), then `solver/fmcts.py` (or `solver/par_eval.py` for
   parallel winrate evals). WASM build (for
-  the in-browser engine; NOTE: **no `-ffast-math`** — it breaks cross-arch board-gen
-  bit-parity, and the search doesn't need it): run `solver/build_wasm.sh` (emcc
-  single-file ESM → `src/fast_engine.js`), then validate with `python3
-  solver/validate_wasm.py`. On the iOS-faithful deal, offline self-play winrate is
+  the in-browser engine): `engine/build.sh` (cargo, wasm32-unknown-unknown →
+  `src/nw_engine.wasm`; commit it), then validate with the cargo differential tests
+  and `solver/validate_wasm.py`. `solver/check.sh` does both. On the iOS-faithful deal, offline self-play winrate is
   **~94–95%** (8000 sims). The old offline-over-predicts-live gap is **CLOSED**: after
   the battle/survivor recalibration above, a 100-game live run scored **94.0%** (CI
   87.5–97.2%), matching offline at the same C-UCT config (memory

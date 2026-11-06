@@ -1,14 +1,13 @@
 // Compare two WASM builds with paired timings and exact root-stat/RNG parity.
-// node solver/search_bench.mjs /path/before.mjs src/fast_engine.js [seeds=12] [sims=4000]
+// node solver/search_bench.mjs /path/before.wasm src/nw_engine.wasm [seeds=12] [sims=4000]
 import assert from 'node:assert/strict';
 import { loadEngine } from '../src/fastnw.ts';
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 const [before, after, seedArg = '12', simsArg = '4000'] = process.argv.slice(2);
-if (!before || !after) throw new Error('Provide before and after WASM module paths');
+if (!before || !after) throw new Error('Provide before and after .wasm paths');
 const engines = [];
 for (const path of [before, after])
-  engines.push(await loadEngine((await import(pathToFileURL(resolve(path)).href)).default));
+  engines.push(await loadEngine(await readFile(path)));
 const elapsed = [0, 0], ratios = [], sims = Number(simsArg);
 let positions = 0, pairs = 0;
 for (let seed = 1; seed <= Number(seedArg); seed++) {
@@ -34,7 +33,7 @@ for (let seed = 1; seed <= Number(seedArg); seed++) {
     }
     base.useMb32(g.mb);
     base._put(base._owner, g.owner); base._put(base._strength, g.strength);
-    base.M._end_turn(base._owner, base._strength);
+    base.wasm.end_turn(base._owner, base._strength);
     base._getBack(base._owner, g.owner); base._getBack(base._strength, g.strength);
     g.mb = base.getMb32();
   }
@@ -46,4 +45,4 @@ console.log(`Before ${(elapsed[0]/1000).toFixed(3)}s; after ${(elapsed[1]/1000).
 for (const e of engines) {
   const g = e.newGame(1); e.uctBegin(g.owner, g.strength, 1, 2000, 2.5, 1, 150000);
 }
-console.log('WASM heap at 150k ceiling (MiB), before/after:', engines.map(e => (e.M.HEAP32.buffer.byteLength / 2**20).toFixed(2)).join(' / '));
+console.log('WASM heap at 150k ceiling (MiB), before/after:', engines.map(e => (e.wasm.memory.buffer.byteLength / 2**20).toFixed(2)).join(' / '));

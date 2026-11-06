@@ -38,11 +38,11 @@ uv run python validate_fast.py                       # native regression gate
 uv run python fmcts.py --games 120 --sims 3200 --c-puct 2.5   # one process
 uv run python par_eval.py --games 1000 --sims 8000 --workers 9 # parallel winrate
 
-./build_wasm.sh && uv run python validate_wasm.py    # rebuild + gate the browser engine
+../engine/build.sh && uv run python validate_wasm.py   # rebuild + gate the browser engine
 ```
 
 To play in a browser, run `npm run dev` at the repo root — the engine runs
-in-browser as WASM, no Python needed.
+in-browser as WASM (the Rust port in `../engine/`), no Python needed.
 
 - **`fmcts.py`** — plans with the C UCT search but applies each move to the *real*
   seeded game (via the `network_wars` shim), so outcomes are genuine — the search
@@ -62,12 +62,11 @@ dependency is `numpy<2`. `fast_engine.so` is gitignored — rebuild with the `cc
 ## Search performance checks
 
 `search_bench.py before.so after.so` and
-`node search_bench.mjs before.mjs ../src/fast_engine.js` compare two builds
+`node search_bench.mjs before.wasm ../src/nw_engine.wasm` compare two builds
 using 48 seeded opening/midgame positions, ordinary and grading searches,
 4k fixed / 4k–8k adaptive budgets, and three alternating-order repetitions.
 Every root action, visit count, Q value, simulation total, and game RNG position
-must match. Preserve a baseline build before changing the engine; WASM baselines
-outside `src/` should use the `.mjs` extension.
+must match. Copy the baseline build aside before changing the engine.
 
 The September 2026 cleanup stores each uniform prior once per tree node, caches
 conditional capture strength and source logarithms, shares winner/count work,

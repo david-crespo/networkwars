@@ -4,8 +4,8 @@ The page is TypeScript built with Vite (`npm run dev`, `npm run build` into `dis
 `npm run typecheck`) and
 Cloudflare serves `dist/` as an assets-only Worker (`wrangler.jsonc`; `npm run
 deploy`, or connect the repo in the Cloudflare dashboard). It uses the committed
-`src/fast_engine.js`: after changing the C engine, run `solver/build_wasm.sh` and
-commit the result. A service worker (`src/sw.ts`) makes the page work offline after
+`src/nw_engine.wasm`, the Rust port of the engine in `engine/`: after changing it,
+run `engine/build.sh` and commit the result. A service worker (`src/sw.ts`) makes the page work offline after
 one visit while still loading each new deploy (the page is network-first, the
 content-hashed assets cache-first). `npm run test:e2e` runs the Playwright tests.
 
@@ -13,14 +13,16 @@ A faithful reproduction of Jim Rutt's **Network Wars** plus a strong AI player f
 You (RED) fight four deterministic bots (GREEN, YELLOW, BLUE, PURPLE) for control of a
 30-node graph; first faction to hold **24 nodes** wins. The whole game — board, deal,
 bots, battle, reinforcement, win check, **and the search-based AI** — is one C file
-(`solver/fast_engine.c`), compiled natively for headless play and to WASM for the browser.
+(`solver/fast_engine.c`), compiled natively for headless play, plus a bit-identical Rust
+port (`engine/`) compiled to WASM for the browser.
 
 ## What's here
 
 | Path | What it is |
 |------|------------|
 | `solver/fast_engine.c` | **The single source of truth.** All rules + board generation + the iOS-faithful deal + the four bots + the decompiled fair-coin battle + reinforcement + the open-loop **C-UCT MCTS** (no neural net). |
-| `index.html`, `src/` | The **serverless browser game.** `fast_engine.c` compiled to WASM (`src/fast_engine.js`) runs the whole engine + search in a Web Worker; `src/main.ts` is the UI. No backend needed. |
+| `engine/` | The Rust port of `fast_engine.c`, bit-identical to its strict-IEEE build and checked against it by differential tests; builds `src/nw_engine.wasm`. |
+| `index.html`, `src/` | The **serverless browser game.** The Rust engine compiled to WASM (`src/nw_engine.wasm`) runs the whole engine + search in a Web Worker; `src/main.ts` is the UI. No backend needed. |
 | `solver/fmcts.py`, `solver/par_eval.py` | Headless self-play / parallel winrate evals (thin ctypes clients over the C engine). |
 | `solver/hard_ab.py` | Paired A/B of engine configs over the hard set of openings lost in live play (`solver/HARD_SET.md`). |
 
@@ -45,8 +47,10 @@ uv run python solver/validate_fast.py                          # regression gate
 uv run python solver/par_eval.py --games 1000 --sims 8000 --workers 9
 ```
 
-To rebuild the WASM frontend after editing `fast_engine.c`: `solver/build_wasm.sh`, then
-`uv run python solver/validate_wasm.py` (bit-parity gate vs native). Python deps are
+A rules or search change goes in both `fast_engine.c` and `engine/`. Rebuild the browser
+engine with `engine/build.sh`, then check it with `(cd engine && cargo nextest run
+--release)` (differential tests vs the C) and `uv run python solver/validate_wasm.py`
+(board-gen bit-parity vs native). Python deps are
 managed with `uv`; the only runtime dependency is `numpy<2`. `fast_engine.so` is
 gitignored — rebuild with the `cc` line.
 
