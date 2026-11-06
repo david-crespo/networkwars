@@ -49,5 +49,7 @@ solver/iphone_data/imported_board.json
 # macOS Finder metadata
 .DS_Store
 
-# Content-addressed GitHub Pages deployment output.
+# Content-addressed deployment output (solver/build_site.py), and Cloudflare tooling.
 _site/
+node_modules/
+.wrangler/

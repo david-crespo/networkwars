@@ -1,0 +1,6 @@
+# Cloudflare static-asset headers (parsed at deploy, never served).
+# build_site.py puts every module under a content-addressed release directory,
+# so those files never change and can be cached for good. Everything else
+# (index.html, sw.js) keeps Cloudflare's default revalidate-every-load caching.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

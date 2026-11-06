@@ -1,8 +1,11 @@
 # Network Wars
 
-GitHub Pages deploys the output of `python3 solver/build_site.py` after compiling
-WASM. It places all page imports and worker dependencies under one content-based
-release URL so returning browsers cannot mix cached modules from different pushes.
+Cloudflare serves the output of `python3 solver/build_site.py` as an assets-only
+Worker (`wrangler.jsonc`; `npm run deploy`, or connect the repo in the Cloudflare
+dashboard). The build places all page imports and worker dependencies under one
+content-based release URL so returning browsers cannot mix cached modules from
+different pushes. It uses the committed `public/fast_engine.js`: after changing the C
+engine, run `solver/build_wasm.sh` and commit the result.
 Local development can still serve `public/` directly. A service worker (`public/sw.js`)
 makes the page work offline after one visit while still loading each new deploy
 (the page is network-first, releases are cache-first). Gate: `python3 solver/site_gate.py`.

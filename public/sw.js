@@ -9,7 +9,7 @@
 const RELEASE = null;      // build_site.py: 'assets/<hash>'
 const PRECACHE = [];       // build_site.py: the release's module files
 
-// maxbittker.github.io is shared by several projects, and so is its CacheStorage.
+// CacheStorage is per origin, which may host other projects too.
 const PREFIX = 'networkwars-';
 const SHELL = `${PREFIX}shell`;
 const releaseCache = (hash) => `${PREFIX}${hash}`;

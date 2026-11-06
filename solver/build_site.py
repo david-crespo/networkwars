@@ -1,6 +1,6 @@
-"""Stage Pages assets under a content-addressed release directory.
+"""Stage the site with its modules under a content-addressed release directory.
 
-GitHub Pages caches each URL independently. A new HTML page must not import
+Browsers cache each URL independently. A new HTML page must not import
 old cached modules or workers, especially when their exports/WASM ABI changed.
 """
 import hashlib
@@ -23,7 +23,8 @@ def build_site(output, source=PUBLIC):
         digest.update(path.relative_to(source).as_posix().encode() + b'\0')
         digest.update(path.read_bytes())
     release = f'assets/{digest.hexdigest()[:16]}'
-    shutil.copytree(source, output, dirs_exist_ok=True)
+    shutil.rmtree(output, ignore_errors=True)   # no stale releases in the upload
+    shutil.copytree(source, output)
     # All transitive relative imports stay within the same immutable release,
     # including engine.worker.js -> fastnw.js -> the embedded WASM module.
     # The service worker stays at the root, where its scope covers the page.
