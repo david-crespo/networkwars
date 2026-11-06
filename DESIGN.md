@@ -120,11 +120,11 @@ their boards and dice are preserved. The version is stored with each new round.
 - **Engine**: a single C implementation (`solver/fast_engine.c`) of all rules + board
   generation + the C-UCT search. This is the source of truth; there is no separate JS
   rules engine. It is compiled two ways: natively (`fast_engine.so`, driven by Python
-  ctypes via `fastnw.py`) and to **WASM** (`public/fast_engine.js`).
-- **Browser frontend**: `public/` is self-contained. The WASM engine + search run in a Web
+  ctypes via `fastnw.py`) and to **WASM** (`src/fast_engine.js`).
+- **Browser frontend**: `index.html` + `src/` are self-contained. The WASM engine + search run in a Web
   Worker (`engine.worker.js`, which holds game state and speaks the `/api/game/*` contract
-  over postMessage); `index.html` is just canvas rendering and input. **No backend needed**
-  — serve `public/` statically. Seeded mulberry32 per game for reproducibility.
+  over postMessage); `src/main.js` is just canvas rendering and input. **No backend needed**
+  — `npm run build` makes a static site. Seeded mulberry32 per game for reproducibility.
 
 ### Game API (postMessage to the engine worker)
 

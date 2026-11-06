@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Network Wars</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=2">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div id="menuwrap">
+      <div id="menu" title="Menu"><span></span><span></span><span></span></div>
+      <div id="menupop">
+        <div class="mi" id="mi-copy">Copy Seed</div>
+        <div class="mi" id="mi-paste">Paste Seed&hellip;</div>
+        <div class="div"></div>
+        <div class="mi" id="mi-sweep">Sweep-Up Offer</div>
+        <div class="div"></div>
+        <div class="mi" id="mi-export">Save Data (JSON)</div>
+        <div class="mi" id="mi-import">Load Data (JSON)&hellip;</div>
+        <div class="mi" id="mi-errors">Errors<span id="mi-errn"></span></div>
+      </div>
+    </div>
+    <div id="chips"></div>
+  </header>
+  <div id="mstrip">
+    <span id="mgame">—</span>
+    <span id="tally">—</span>
+  </div>
+
+  <div id="board">
+    <canvas id="cv"></canvas>
+    <div id="aibadge" title="The AI is playing this seed in the background">
+      <div id="aidot"></div>
+      <canvas id="aicv" width="56" height="56"></canvas>
+    </div>
+  </div>
+
+  <footer>
+    <button id="bolt" type="button" aria-label="Instant animations" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 4.5 13.5h6.5L9.5 22l9.5-12h-6.5z"/></svg>
+    </button>
+    <div id="sweep">
+      <div id="sw-text"><b>1000/1000</b><span id="sw-sub">wins</span></div>
+      <div class="act" id="sw-go">Sweep</div>
+      <div class="act" id="sw-x">&#10005;</div>
+    </div>
+    <div class="act" id="endturn">End Turn</div>
+  </footer>
+</div>
+
+<!-- tally -->
+<div class="ov" id="ov-res"><div class="panel">
+  <div class="p-head"><span id="res-title">Tally</span><div class="act x" id="res-close" aria-label="Close">&#10005;</div></div>
+  <div class="p-body" id="res-body"></div>
+  <div class="p-foot">
+    <div class="act danger" id="res-reset">Reset tally</div>
+  </div>
+</div></div>
+
+<!-- errors (reachable from the menu) -->
+<div class="ov" id="ov-err"><div class="panel">
+  <div class="p-head"><span>Errors</span><div class="act x" id="err-close" aria-label="Close">&#10005;</div></div>
+  <div class="p-body"><div id="err-list"></div><div id="err-ctx"></div></div>
+  <div class="p-foot">
+    <div class="act" id="err-copy">Copy</div>
+    <div class="act danger" id="err-clear">Clear</div>
+  </div>
+</div></div>
+
+<!-- per-seed detail -->
+<div class="ov" id="ov-seed"><div class="panel">
+  <div class="p-head"><span id="sd-title">Seed</span><div class="act" id="sd-close">Back</div></div>
+  <div class="p-body" id="sd-body"></div>
+</div></div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

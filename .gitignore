@@ -29,8 +29,8 @@ solver/fast_engine.so
 # macOS Finder metadata
 .DS_Store
 
-# Content-addressed deployment output (solver/build_site.py), and Cloudflare tooling.
-_site/
+# Build output (vite build), and Cloudflare tooling.
+dist/
 node_modules/
 .wrangler/
 test-results/

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { aiWinCurve, youWinCurve } from '../public/projections.js';
-import { REVIEW_VERSION, invalidateStaleReview } from '../public/review.js';
-import { skillHistory } from '../public/skill.js';
+import { aiWinCurve, youWinCurve } from '../src/projections.js';
+import { REVIEW_VERSION, invalidateStaleReview } from '../src/review.js';
+import { skillHistory } from '../src/skill.js';
 const moves = [{ a: [0, 1] }, { e: 1 }, { e: 1 }, { e: 1 }];
 const partial = { moves: [null, { turn: 1, bestQ: .95 }, { turn: 2, bestQ: .4 }, null] };
 assert.deepEqual(youWinCurve(partial, moves), [{ t: 1, q: null }, { t: 2, q: .4 }, { t: 3, q: null }]);

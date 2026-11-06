@@ -1,12 +1,12 @@
-// Assets-only Worker: Cloudflare serves the staged site with no Worker script.
-// `build_site.py` stages public/ into _site/ with every module under one
-// content-addressed assets/<hash>/ directory (see public/_headers for caching).
-// The WASM engine is the committed public/fast_engine.js: after changing
-// solver/fast_engine.c, run solver/build_wasm.sh and commit its output.
+// Assets-only Worker: Cloudflare serves the built site (`vite build` into dist/)
+// with no Worker script. Built files under assets/ have content hashes in their
+// names (see public/_headers for caching). The WASM engine is the committed
+// src/fast_engine.js: after changing solver/fast_engine.c, run
+// solver/build_wasm.sh and commit its output.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "networkwars",
   "compatibility_date": "2026-11-05",
-  "build": { "command": "python3 solver/build_site.py" },
-  "assets": { "directory": "./_site" }
+  "build": { "command": "npm run build" },
+  "assets": { "directory": "./dist" }
 }

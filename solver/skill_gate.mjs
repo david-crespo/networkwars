@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { skillHistory, skillComparison, skillTrend } from '../public/skill.js';
+import { skillHistory, skillComparison, skillTrend } from '../src/skill.js';
 const round = (gap, n = 1) => ({ seed: 11, you: { result: 'won', hist: [],
   moves: Array.from({ length: n }, () => ({ e: 1, l: 'label' })),
   review: { moves: Array.from({ length: n }, () => ({ gap, dead: false })) } },
@@ -47,7 +47,7 @@ assert.deepEqual(skillTrend(history, 10), skillTrend(history).slice(-10), 'zoom 
 assert.equal(compare([...missing, ...games(12, 5)]).state, 'better');
 assert.deepEqual(skillHistory([{ you: { result: null } }]), []);
 
-const html = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const html = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const ctx = vm.createContext({ console, M: { rounds: [], idx: -1 }, reviewing: new Set(),
   trimNoted: true, reviewErr: {}, scoreBusy: false });
 vm.runInContext(html.slice(html.indexOf('function trimOldest()'), html.indexOf('function load()')), ctx);

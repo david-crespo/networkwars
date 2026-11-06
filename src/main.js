@@ -1,330 +1,3 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Network Wars</title>
-<link rel="icon" type="image/svg+xml" href="favicon.svg?v=2">
-<style>
-  :root {
-    --red:#ff4a62; --green:#0ed887; --yellow:#e2b200; --blue:#3b90f1; --purple:#ac64f8;
-    --teal:#5fd0d6; --ink:#06140f;
-  }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin:0; height:100%; background:#04100c; color:#cfe;
-    font-family: -apple-system, "SF Pro Display", Segoe UI, Roboto, sans-serif; overflow:hidden; }
-  /* no native selection or long-press callout; iOS otherwise selects a whole
-     canvas on long press */
-  body, canvas { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
-  #err-list, #err-ctx { -webkit-user-select:text; user-select:text; }
-  #app { display:flex; flex-direction:column; height:100%; max-width:440px; margin:0 auto;
-    position:relative;
-    background:linear-gradient(180deg, #051219 0%, #032017 53%, #242006 100%); }
-
-  header { display:flex; align-items:center; gap:8px; padding:10px 14px 4px; }
-  /* hamburger + popup menu */
-  #menuwrap { position:relative; flex:0 0 auto; }
-  #menu { width:30px; height:30px; display:flex; flex-direction:column;
-    justify-content:center; gap:5px; cursor:pointer; opacity:.85; padding:3px; }
-  #menu span { height:2.5px; background:#bfe; border-radius:2px; }
-  #menu:active { opacity:.5; }
-  #menupop { position:absolute; top:38px; left:0; z-index:10; min-width:178px;
-    background:#04130d; border:1px solid #1c5; border-radius:12px; padding:6px;
-    box-shadow:0 10px 34px -10px rgba(0,0,0,.85); display:none; }
-  #menupop.show { display:block; }
-  #menupop .mi { padding:9px 12px; border-radius:8px; font-size:14px; color:#cfe;
-    cursor:pointer; display:flex; align-items:center; justify-content:space-between; }
-  #menupop .mi:active { background:rgba(255,255,255,.09); }
-  #menupop .mi.sel { color:#bfe; }
-  #menupop .mi.sel::after { content:'✓'; color:var(--teal); font-weight:800; }
-  #menupop .div { height:1px; background:rgba(255,255,255,.08); margin:5px 6px; }
-  #chips { flex:1; display:flex; justify-content:center; gap:12px; }
-  .chip { position:relative; width:34px; height:34px;
-    display:flex; align-items:center; justify-content:center;
-    font-weight:800; font-size:14px; color:#fff;
-    filter:drop-shadow(0 0 5px currentColor); }
-  .chip.red{color:var(--red)} .chip.green{color:var(--green)} .chip.yellow{color:var(--yellow)}
-  .chip.blue{color:var(--blue)} .chip.purple{color:var(--purple)}
-  .chip svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
-  .chip polygon { fill:#061719; stroke:currentColor; stroke-width:1.8; }
-  .chip.cur { filter:drop-shadow(0 0 7px currentColor); }
-  .chip.cur polygon { stroke:#f1fff8; stroke-width:2.8; }
-  .chip.dead { opacity:.28; filter:grayscale(.4); }
-  .chip b { position:relative; color:#fff; }
-  .chip.cur b { color:inherit; }
-
-  #mstrip { display:flex; align-items:center; gap:8px; padding:2px 14px 6px; font-size:11px;
-    text-transform:uppercase; letter-spacing:.06em; color:#7fb6a6; }
-  #mgame { flex:1; min-width:0; font-weight:800; color:var(--teal); letter-spacing:.04em; }
-  #tally { flex:0 0 auto; font-weight:800; cursor:pointer; color:#bfe;
-    text-decoration:underline; text-decoration-color:rgba(191,238,255,.35);
-    text-underline-offset:3px; letter-spacing:.02em; }
-  #tally:active { opacity:.55; }
-  #tally .y { color:var(--teal); } #tally .a { color:var(--yellow); }
-  /* error log: a menu item (a phone has no console to show it), counted when non-empty */
-  #mi-errn { color:#ff7d8a; font-weight:800; margin-left:6px; }
-  .err { padding:8px 0; border-bottom:1px solid rgba(255,255,255,.06); }
-  .err-meta { font-size:11px; color:#7fb6a6; letter-spacing:.03em; }
-  .err-msg { font:12px/1.4 ui-monospace, Menlo, monospace; color:#ffb3bc;
-    word-break:break-word; white-space:pre-wrap; margin-top:2px; }
-  .err.prev .err-msg { color:#c9a3a9; }
-  .err-trail { font:11px/1.4 ui-monospace, Menlo, monospace; color:#7fb6a6;
-    white-space:pre-wrap; margin-top:4px; }
-  #err-ctx { font:11px/1.45 ui-monospace, Menlo, monospace; color:#7fb6a6;
-    white-space:pre-wrap; word-break:break-word; margin-top:14px; }
-
-  #board { flex:1; position:relative; min-height:0; }
-  canvas#cv { width:100%; height:100%; display:block; touch-action:none; }
-
-  /* ---- background-AI badge: ambient proof-of-work, deliberately unreadable ----
-     The AI plays the same seed concurrently in its own worker. Its board is shown
-     blurred + grayscale so you can see it IS working without reading who's winning —
-     that would spoil the seed you're still playing. */
-  #aibadge { position:absolute; top:4px; right:10px; z-index:3; cursor:pointer;
-    border-radius:8px; background:rgba(0,0,0,.34);
-    border:1px solid rgba(245,197,66,.28); }
-  #aibadge:active { opacity:.6; }
-  #aibadge.idle { border-color:rgba(255,255,255,.10); }
-  #aicv { display:block; width:56px; height:56px; border-radius:7px; background:rgba(0,0,0,.4);
-    filter:blur(1.7px) grayscale(1) contrast(.85) brightness(1.25); }
-  #aidot { position:absolute; top:5px; left:5px; width:6px; height:6px; border-radius:50%;
-    background:var(--yellow); box-shadow:0 0 6px var(--yellow); animation:pulse 1.1s infinite; }
-  #aibadge.idle #aidot { background:#5f9e8e; box-shadow:none; animation:none; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
-
-  footer { display:flex; justify-content:space-between; align-items:center; gap:8px;
-    padding:10px 18px calc(10px + env(safe-area-inset-bottom)); font-size:16px; }
-  .act { color:var(--teal); font-weight:700; cursor:pointer; user-select:none; padding:6px 2px; }
-  .act:active { opacity:.55; }
-  .act.off { opacity:.3; pointer-events:none; }
-  #endturn { font-size:20px; }
-  /* animation speed: off = fast, on = instant */
-  #bolt { flex:0 0 auto; width:40px; height:40px; margin-left:-8px; padding:8px; border:0;
-    background:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-  #bolt svg { display:block; width:100%; height:100%; fill:none; stroke:var(--teal);
-    stroke-width:1.8; stroke-linejoin:round; opacity:.45; transition:opacity .15s, fill .15s; }
-  #bolt[aria-pressed="true"] svg { fill:var(--yellow); stroke:var(--yellow); opacity:1;
-    filter:drop-shadow(0 0 6px var(--yellow)); }
-  #bolt:active svg { opacity:.3; }
-
-  /* sweep-up offer: sits in the footer between the bolt toggle and End Turn,
-     so it never covers the board — the mop-up policy wins this position
-     1000/1000 times, offer to run it. */
-  #sweep { flex:1; min-width:0; display:none; align-items:center; gap:4px;
-    padding:2px 4px 2px 12px; background:#04140c; border:1px solid var(--green);
-    border-radius:10px; box-shadow:0 0 14px -6px var(--green); font-size:13px; }
-  #sweep.show { display:flex; animation:blup .18s ease-out; }
-  @keyframes blup { from { transform:translateY(6px); opacity:0; } to { transform:none; opacity:1; } }
-  #sw-text { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #sw-text b { color:var(--green); font-size:14px; margin-right:6px; }
-  #sw-sub { color:#cfe; }
-  #sweep .act { padding:6px 8px; flex:0 0 auto; }
-  #sw-x { color:#7fb6a6; font-weight:800; }
-
-  /* ---- overlays: full-bleed — on mobile every pixel goes to the content.
-     The panel fills the viewport height and the app's column width, so on
-     desktop it stays a full-height 440px column over the app rather than a
-     floating card. ---- */
-  .ov { position:absolute; inset:0; display:none; justify-content:center;
-    background:rgba(0,0,0,.62); backdrop-filter:blur(3px); z-index:6; }
-  .ov.show { display:flex; }
-  .panel { background:#020b08; width:min(440px,100vw); height:100%;
-    display:flex; flex-direction:column;
-    box-shadow:0 0 40px -8px rgba(54,211,154,.5); overflow:hidden; }
-  .p-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
-    padding:calc(14px + env(safe-area-inset-top)) 18px 14px;
-    border-bottom:1px solid rgba(255,255,255,.08);
-    font-size:15px; font-weight:700; color:#cfe; letter-spacing:.03em; flex:0 0 auto; }
-  /* close ✕: a full 44px tap target, pulled into the header padding */
-  .p-head .x { width:44px; height:44px; margin:-12px -12px -12px 0; padding:0; display:flex;
-    align-items:center; justify-content:center; font-size:26px; line-height:1; }
-  .p-body { overflow-y:auto; padding:16px 18px calc(16px + env(safe-area-inset-bottom));
-    overscroll-behavior:contain;
-    scrollbar-width:thin; scrollbar-color:rgba(95,208,214,.45) transparent; }
-  /* slim glowing teal scrollbar instead of the OS default slab */
-  .p-body::-webkit-scrollbar { width:7px; }
-  .p-body::-webkit-scrollbar-track { background:transparent; }
-  .p-body::-webkit-scrollbar-thumb { border-radius:4px;
-    background:linear-gradient(180deg, rgba(95,208,214,.55), rgba(54,211,154,.45));
-    box-shadow:0 0 6px -1px rgba(95,208,214,.5); }
-  .p-body::-webkit-scrollbar-thumb:hover {
-    background:linear-gradient(180deg, rgba(95,208,214,.85), rgba(54,211,154,.7)); }
-  .p-foot { padding:12px 18px calc(12px + env(safe-area-inset-bottom));
-    border-top:1px solid rgba(255,255,255,.08); display:flex; gap:16px;
-    justify-content:space-between; align-items:center; flex:0 0 auto; }
-  .p-body h3 { margin:0 0 6px; font-size:13px; color:#bfe; text-transform:uppercase;
-    letter-spacing:.05em; font-weight:700; }
-  .danger { color:#ff7d8a; }
-
-  #score { display:flex; gap:10px; margin:0 0 16px; }
-  .sc { flex:1; text-align:center; padding:12px 6px; border-radius:11px;
-    background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); }
-  .sc.lead { border-color:var(--green); box-shadow:0 0 18px -8px var(--green); }
-  .sc .who { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#7fb6a6; }
-  .sc .n { font-size:28px; font-weight:800; color:#e9f7f0; line-height:1.25;
-    font-variant-numeric:tabular-nums; }
-  .sc .pct { font-size:12px; color:#8fcfb8; }
-
-  .srow { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px;
-    background:rgba(255,255,255,.035); margin-bottom:6px; cursor:pointer; }
-  .srow:active { background:rgba(255,255,255,.10); }
-  .srow canvas { width:46px; height:46px; flex:0 0 auto; background:rgba(0,0,0,.3); border-radius:7px; }
-  .srow .meta { flex:1; min-width:0; }
-  .srow .sd { font-size:11px; color:#5f9e8e; font-family:ui-monospace, Menlo, monospace; }
-  .srow .vs { font-size:13px; font-weight:700; margin-top:2px; }
-  .tag { display:inline-block; padding:1px 6px; border-radius:5px; font-size:11px;
-    font-weight:800; letter-spacing:.03em; }
-  .tag.won { background:rgba(54,211,154,.16); color:var(--green); }
-  .tag.lost { background:rgba(255,77,94,.16); color:var(--red); }
-  .tag.none { background:rgba(255,255,255,.07); color:#7fb6a6; }
-  .srow .loss { font-size:11px; color:#7fb6a6; margin-top:2px; }
-  .srow .go { color:var(--teal); font-weight:800; flex:0 0 auto; font-size:15px; }
-
-  /* ---- per-seed detail: one shared power graph + inspectable move lists ---- */
-  canvas.pg { display:block; width:100%; height:112px; background:rgba(255,255,255,.02);
-    border-radius:8px; cursor:pointer; }
-  /* legend doubles as each side's final score, so the graph needs no axis labels
-     (.glegend = same treatment for the tally's skill graph) */
-  #glegend, .glegend { display:flex; flex-wrap:wrap; gap:6px 14px; justify-content:center;
-    font-size:11px; color:#8fcfb8; margin:8px 0 14px; }
-  #glegend span, .glegend span { display:flex; align-items:center; gap:5px; }
-  #glegend i, .glegend i { width:12px; height:3px; border-radius:2px; flex:0 0 auto; }
-  #glegend i.dash { background:repeating-linear-gradient(90deg,
-    rgba(54,211,154,.7) 0 3px, transparent 3px 6px); }
-  #glegend i.dashq { background:repeating-linear-gradient(90deg,
-    #8fcfb8 0 2px, transparent 2px 5px); }
-  /* skill-graph header row: title left, zoom chips (last 10 / 100 / all seeds) right */
-  .h3row { display:flex; align-items:center; justify-content:space-between; margin:0 0 6px; }
-  .h3row h3 { margin:0; }
-  .zchips { display:flex; gap:4px; }
-  .zchips button { padding:6px 9px; min-height:32px; border:0; font-family:inherit; border-radius:6px; font-size:11px; font-weight:700;
-    color:#7fb6a6; background:rgba(255,255,255,.05); cursor:pointer; }
-  .zchips button:active { background:rgba(255,255,255,.14); }
-  .zchips button.sel { color:#04100c; background:var(--teal); }
-
-  #sk { height:150px; }
-  #sklegend b { color:#e9f7f0; font-variant-numeric:tabular-nums; }
-  #sklegend[data-state="better"] b { color:var(--green); }
-  #sklegend[data-state="worse"] b { color:#ff9f45; }
-
-  /* inspector: the board at the selected move. Square-ish and as wide as the panel —
-     the board is the point of this view, so it gets the room. */
-  #ibwrap { position:relative; height:min(360px, 78vw); background:rgba(0,0,0,.28);
-    border-radius:10px; margin:0 0 8px; overflow:hidden; }
-  #ib { width:100%; height:100%; display:block; }
-  #ibcap { display:flex; align-items:center; justify-content:space-between; gap:8px;
-    margin:0 0 12px; font-size:12px; color:#8fcfb8; }
-  #ibcap .nav { display:flex; gap:6px; align-items:center; }
-  /* generous hit targets: these get tapped repeatedly to walk a game */
-  #ibcap .act { font-size:24px; line-height:1; padding:4px 12px; border-radius:8px;
-    background:rgba(95,208,214,.10); border:1px solid rgba(95,208,214,.28); }
-  #ibcap .act:active { background:rgba(95,208,214,.24); }
-  #ibinfo { flex:1; min-width:0; }
-
-  .tabs { display:flex; gap:6px; margin:0 0 10px; }
-  .tabs > div { flex:1; text-align:center; padding:8px 0; border-radius:9px; font-size:13px;
-    font-weight:700; color:#8fcfb8; background:rgba(255,255,255,.05); cursor:pointer;
-    border:1px solid transparent; }
-  .tabs > div.sel { color:#04100c; background:var(--teal); border-color:var(--teal); }
-  .tabs > div.sel.ai { background:var(--yellow); border-color:var(--yellow); }
-
-  .mv { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px;
-    font-size:13px; margin-bottom:3px; background:rgba(255,255,255,.03); cursor:pointer; }
-  .mv:active { background:rgba(255,255,255,.12); }
-  .mv.cur { box-shadow:inset 0 0 0 1.5px var(--teal); }
-  .mv .no { width:26px; font-size:11px; color:#5f9e8e; font-variant-numeric:tabular-nums; }
-  .mv .lbl { flex:1; color:#cfe; }
-  .pip { display:flex; align-items:center; justify-content:center; min-width:18px;
-    font-weight:800; font-size:15px; flex:0 0 auto; }
-  .pip.red{color:var(--red)} .pip.green{color:var(--green)} .pip.yellow{color:var(--yellow)}
-  .pip.blue{color:var(--blue)} .pip.purple{color:var(--purple)}
-  .arrow { color:#6fae9e; font-weight:700; }
-  .mv .gap { font-weight:800; min-width:46px; text-align:right; font-variant-numeric:tabular-nums; }
-  .mv .qq { min-width:44px; text-align:right; font-size:11px; color:#7fb6a6;
-    font-variant-numeric:tabular-nums; }
-  .mv.t0 .gap { color:#6fae9e; }
-  .mv.t1 { background:rgba(245,197,66,.09); }  .mv.t1 .gap { color:var(--yellow); }
-  .mv.t2 { background:rgba(255,159,69,.11); }  .mv.t2 .gap { color:#ff9f45; }
-  .mv.t3 { background:rgba(255,77,94,.13); }   .mv.t3 .gap { color:var(--red); }
-  .mv.dead { opacity:.4; } .mv.dead .gap { color:#5f9e8e; font-weight:600; font-size:11px; }
-  .mvbest { font-size:11px; color:#7fb6a6; display:flex; align-items:center; gap:6px;
-    padding:1px 8px 6px 34px; }
-  #rvbar { height:5px; border-radius:3px; background:rgba(255,255,255,.08);
-    overflow:hidden; margin:0 0 10px; display:flex; }
-  #rvbar > i { display:block; height:100%; }
-  .spin { color:#7fb6a6; font-style:italic; font-size:13px; padding:14px 0; text-align:center; }
-</style>
-</head>
-<body>
-<div id="app">
-  <header>
-    <div id="menuwrap">
-      <div id="menu" title="Menu"><span></span><span></span><span></span></div>
-      <div id="menupop">
-        <div class="mi" id="mi-copy">Copy Seed</div>
-        <div class="mi" id="mi-paste">Paste Seed&hellip;</div>
-        <div class="div"></div>
-        <div class="mi" id="mi-sweep">Sweep-Up Offer</div>
-        <div class="div"></div>
-        <div class="mi" id="mi-export">Save Data (JSON)</div>
-        <div class="mi" id="mi-import">Load Data (JSON)&hellip;</div>
-        <div class="mi" id="mi-errors">Errors<span id="mi-errn"></span></div>
-      </div>
-    </div>
-    <div id="chips"></div>
-  </header>
-  <div id="mstrip">
-    <span id="mgame">—</span>
-    <span id="tally">—</span>
-  </div>
-
-  <div id="board">
-    <canvas id="cv"></canvas>
-    <div id="aibadge" title="The AI is playing this seed in the background">
-      <div id="aidot"></div>
-      <canvas id="aicv" width="56" height="56"></canvas>
-    </div>
-  </div>
-
-  <footer>
-    <button id="bolt" type="button" aria-label="Instant animations" aria-pressed="false">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 4.5 13.5h6.5L9.5 22l9.5-12h-6.5z"/></svg>
-    </button>
-    <div id="sweep">
-      <div id="sw-text"><b>1000/1000</b><span id="sw-sub">wins</span></div>
-      <div class="act" id="sw-go">Sweep</div>
-      <div class="act" id="sw-x">&#10005;</div>
-    </div>
-    <div class="act" id="endturn">End Turn</div>
-  </footer>
-</div>
-
-<!-- tally -->
-<div class="ov" id="ov-res"><div class="panel">
-  <div class="p-head"><span id="res-title">Tally</span><div class="act x" id="res-close" aria-label="Close">&#10005;</div></div>
-  <div class="p-body" id="res-body"></div>
-  <div class="p-foot">
-    <div class="act danger" id="res-reset">Reset tally</div>
-  </div>
-</div></div>
-
-<!-- errors (reachable from the menu) -->
-<div class="ov" id="ov-err"><div class="panel">
-  <div class="p-head"><span>Errors</span><div class="act x" id="err-close" aria-label="Close">&#10005;</div></div>
-  <div class="p-body"><div id="err-list"></div><div id="err-ctx"></div></div>
-  <div class="p-foot">
-    <div class="act" id="err-copy">Copy</div>
-    <div class="act danger" id="err-clear">Clear</div>
-  </div>
-</div></div>
-
-<!-- per-seed detail -->
-<div class="ov" id="ov-seed"><div class="panel">
-  <div class="p-head"><span id="sd-title">Seed</span><div class="act" id="sd-close">Back</div></div>
-  <div class="p-body" id="sd-body"></div>
-</div></div>
-
-<script type="module">
 // ============================================================================
 // Head-to-head: continuous DUPLICATE-format play against the C-UCT engine, with the
 // AI playing the same seed CONCURRENTLY in a second worker.
@@ -353,12 +26,13 @@
 // search come from fast_engine.c via engine.worker.js. This file is bookkeeping and
 // presentation only.
 // ============================================================================
-import { Board, ORDER, SPEEDS, sleep, dirArrow, drawThumb } from './board.js?v=4';
+import { Board, ORDER, SPEEDS, sleep, dirArrow, drawThumb } from './board.js';
 import { createReviewer, tierOf, invalidateStaleReview } from './review.js';
-import { LEGACY_RULES_VERSION, RULES_VERSION, RELEASE } from './game-version.js';
+import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.js';
 import { aiWinCurve, youWinCurve } from './projections.js';
 import { createReplayInspector } from './replay.js';
 import { skillHistory, skillComparison, skillTrend } from './skill.js';
+import engineWorkerUrl from './engine.worker.js?worker&url';
 
 // The AI plays at the strength the app's autoplay/live driver uses: 6000-sim floor,
 // adaptive up to the worker's 150k ceiling with the visit/value-margin early stop.
@@ -366,6 +40,8 @@ const AI_SIMS = 6000;
 const WIN_NODES = 24;                     // faction node count that ends the game
 
 const $ = (id) => document.getElementById(id);
+// The deployed release (vite.config.ts puts it in the page), or 'dev' under `vite`.
+const RELEASE = document.querySelector('meta[name=release]')?.content ?? 'dev';
 const board = new Board($('cv'), $('board'));
 board.onReplay = (faction, nodes) => renderHeader(faction, nodes);
 
@@ -429,16 +105,19 @@ window.addEventListener('error', (e) => {
 });
 window.addEventListener('unhandledrejection', (e) => reportError('page', errMsg(e.reason)));
 
-// ---- offline: sw.js caches the page + engine (see its header). Not an app error if
-// it can't register (file://, private modes), so only the export hears about it.
-navigator.serviceWorker?.register('sw.js').catch((e) => note('sw', { msg: String(e) }));
+// ---- offline: sw.js caches the page + engine (see its header; built only). Not an
+// app error if it can't register (private modes), so only the export hears about it.
+if (import.meta.env.PROD)
+  navigator.serviceWorker?.register('sw.js').catch((e) => note('sw', { msg: String(e) }));
 
 // ---- independent engines: yours, the AI's, and (lazily, in review.js) the review pool's ----
 const engines = [];            // every worker's in-flight requests, for the export
 function makeEngine(name = 'review') {
   // One URL per worker: WebKit shares a script load between workers started together,
   // and the second one is then not controlled by sw.js, so its imports fail offline.
-  const w = new Worker(`engine.worker.js?${engines.length}`, { type: 'module' });
+  const url = new URL(engineWorkerUrl, location.href);
+  url.searchParams.set('n', String(engines.length));
+  const w = new Worker(url, { type: 'module' });
   const pending = new Map();   // id -> { resolve, path, t }
   let id = 0, pongs = [];
   // beat: the worker's last finished search chunk; ping: its probe(), answered
@@ -1748,7 +1427,7 @@ async function checkLatest() {
   if (RELEASE === 'dev') return;
   try {
     const html = await (await fetch('./', { cache: 'no-store' })).text();
-    latestRelease = html.match(/assets\/([0-9a-f]{16})\//)?.[1] ?? null;
+    latestRelease = html.match(/<meta name="release" content="([^"]+)"/)?.[1] ?? null;
   } catch (_) { latestRelease = null; }
   renderErrors();
 }
@@ -1868,6 +1547,3 @@ else {
   save();
   startSeed();
 }
-</script>
-</body>
-</html>

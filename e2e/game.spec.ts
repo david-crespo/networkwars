@@ -159,6 +159,20 @@ test('reloading resumes the seed in progress', async ({ page }) => {
   expect(await page.evaluate(() => window.__nw.state().turn)).toBe(turn)
 })
 
+test('the service worker serves the game offline', async ({ page, context, browserName }) => {
+  // Playwright's WebKit fails an offline navigation before the service worker sees
+  // it (the old Python-built site did too), so only Chromium can check this.
+  test.skip(browserName === 'webkit', 'offline navigation is broken in Playwright WebKit')
+  await page.waitForFunction(() => navigator.serviceWorker.controller)
+  const seed = (await current(page)).round.seed
+  await context.setOffline(true)
+  await page.reload()
+  await ready(page)
+  expect((await current(page)).round.seed).toBe(seed)
+  // Both engine workers loaded from the cache: the AI plays the seed offline too.
+  await page.waitForFunction(() => window.__nw.model().rounds[0].ai.moves.length > 0)
+})
+
 test('Save Data then Load Data moves the tally to a fresh browser', async ({ page, browser }, info) => {
   await endTurn(page)
   await page.locator('#menu').tap()

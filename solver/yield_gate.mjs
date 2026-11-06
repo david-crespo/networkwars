@@ -23,7 +23,7 @@ self.postMessage = (msg) => {
   const r = pending.get(msg.id);
   if (r) { pending.delete(msg.id); r(msg.result); }
 };
-await import('../public/engine.worker.js');
+await import('../src/engine.worker.js');
 function api(path, method = 'GET', body = null) {
   const id = String(++nextReq);
   return new Promise((res) => { pending.set(id, res); self.onmessage({ data: { id, path, method, body } }); });

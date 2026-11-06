@@ -29,11 +29,12 @@
   - `solver/fastnw.py` — ctypes client (marshals int32 arrays; implements no rules).
   - `solver/network_wars.py` — a readable State/Node shim that delegates every rule
     to the C engine, so the Python analysis tooling keeps an object API.
-  - `public/` — the **self-contained WASM frontend**: `fast_engine.c` is compiled to
-    WASM (`public/fast_engine.js`, single-file ESM, wasm embedded) and runs IN THE
-    BROWSER inside a Web Worker. `public/fastnw.js` is the JS marshalling layer (port
-    of `fastnw.py`); `public/engine.worker.js` is the game/orchestration layer — it
-    holds game state and speaks the `/api/game/*` contract via postMessage, so `index.html` needs no server to play. Search runs
+  - `index.html` + `src/` — the **self-contained WASM frontend**, built with Vite
+    (`npm run dev` / `npm run build` into `dist/`; `vite.config.ts`): `fast_engine.c` is compiled to
+    WASM (`src/fast_engine.js`, single-file ESM, wasm embedded) and runs IN THE
+    BROWSER inside a Web Worker. `src/fastnw.js` is the JS marshalling layer (port
+    of `fastnw.py`); `src/engine.worker.js` is the game/orchestration layer — it
+    holds game state and speaks the `/api/game/*` contract via postMessage, so the page needs no server to play. Search runs
     in the worker so the UI never blocks (adaptive budget: floor ~2000 sims, ceiling
     ~150k, visit-margin early stop — see memory `adaptive-sims`).
     Its `updateWinner` ends the game on **any of**: a faction at 24, one faction left,
@@ -43,20 +44,22 @@
     (fixed 2026-07-17; regression-checked by driving the worker over 40 seeds and
     asserting no state has `counts.red===0 && !over` — ~3/40 games end by wipe, and the
     check catches 2 violations if the rule is removed).
-    `public/board.js` is the board renderer + battle/bot-turn animation
+    `src/board.js` is the board renderer + battle/bot-turn animation
     (octagon nodes, coin-flip replay, reinforce flashes) — the one place the game's
     look lives; the page imports it and never draws its own board.
     One page, pure-static (the free-play page was removed 2026-08-14 and lives
     in git history):
       - `sw.js` — **offline, no UI**: the page is fetched network-first (a 3 s stall
-        serves the cached copy) and `assets/<hash>/` cache-first, one cache per release.
-        `build_site.py` pins the release + precache list into it, so every deploy
-        installs a new worker; activation keeps the current + previous release. Each
-        `new Worker` gets its own URL (`engine.worker.js?N`): WebKit shares one script
+        serves the cached copy) and Vite's content-hashed `assets/` cache-first, one
+        cache per release. `vite.config.ts` pins the release id (also a meta tag in the
+        page) + precache list into it, so every deploy installs a new worker; activation
+        keeps the current + previous release. Built only: `npm run dev` has no service
+        worker. Each `new Worker` gets its own URL (`?n=N`): WebKit shares one script
         load between workers started together and leaves the second uncontrolled, so
         the AI worker failed a cold offline start (Playwright WebKit, 2026-09-27).
-        Gate: `solver/site_gate.py`.
-      - `index.html` — **duplicate-format** head-to-head play vs the engine, continuous:
+        Gate: the offline test in `e2e/` (Chromium only: Playwright's WebKit fails
+        offline navigations before the service worker sees them).
+      - `index.html` + `src/main.js` — **duplicate-format** head-to-head play vs the engine, continuous:
         you play a seed blind (your worker issues ZERO searches) while the AI plays THE
         SAME seed **concurrently in a SECOND worker**; finish and the next seed is dealt,
         with a running W-L tally. The AI pump prioritizes the inspected or just-finished pair, then the
@@ -75,7 +78,7 @@
         unpaired winrates (`sim-vs-real-deal-imbalance`, `hard-set-2026-07-02`). The
         tally panel is deliberately minimal — the two W-L score cards, the
         **skill-over-time graph and compact numeric comparison**, + the seed-list browser.
-        `public/skill.js` compares the latest 20 finished games with the previous
+        `src/skill.js` compares the latest 20 finished games with the previous
         20 (grows from 10 vs 10); unrecoverable missing games are silently
         omitted, while pending games in either window defer the comparison. Only live decisions contribute, with equal weight per game.
         Comparison color is applied cautiously: changes under 0.5 win-chance points or
@@ -92,7 +95,7 @@
         Coverage comes from the **background scorer**:
         a pump that reviews every finished seed, NEWEST first, for as long as the
         page is open, so the graph fills itself in and no longer skews toward
-        auto-scored losses. The scorer itself is **`public/review.js`**
+        auto-scored losses. The scorer itself is **`src/review.js`**
         (`createReviewer(makeEngine).grade(round, onPartial)` + the tier/dead-band
         constants and `reviewAggregates`; the page keeps only the model, the pump and
         rendering): all grading (pump + an open panel's review) runs on a **review
@@ -130,7 +133,7 @@
         Review workers prioritize the open panel, then newer finished games, between
         complete searches. A newly finished game starts grading immediately even
         if the backlog pump is awaiting an older review. Workers keep
-        at most two warm replays each. The inspector uses `public/replay.js` to
+        at most two warm replays each. The inspector uses `src/replay.js` to
         cache two complete trajectories from `/api/replay`, without retaining
         another worker game or rebuilding battle animations per selection.
         `solver/REVIEW_PERFORMANCE.md` documents the performance and accuracy study.
@@ -207,9 +210,9 @@
     (more nodes than all bots combined — median offer 16 RED nodes vs 15 under the
     old plain-lead rule), and shows it in the footer between the bolt (the
     instant-animation toggle) and End Turn so it never covers the board.
-  - Deploy: `wrangler.jsonc` serves `solver/build_site.py`'s `_site/` as an
-    assets-only Cloudflare Worker (`npm run deploy`). Locally, serve `public/` with
-    any static server (`cd public && python3 -m http.server`).
+  - Deploy: `wrangler.jsonc` builds with `npm run build` and serves `dist/` as an
+    assets-only Cloudflare Worker (Workers Builds deploys every push to `main`).
+    Locally, `npm run dev`; `npm run test:e2e` runs Playwright on the built site.
   There is no JS rules engine — board-gen, bots, battle, reinforce, and search are all
   the one C source. Regression gates: `solver/validate_fast.py` (native, board/deal/
   battle invariants over 1000 seeds + frozen golden-seed outcomes) and
@@ -255,7 +258,7 @@
   parallel winrate evals). WASM build (for
   the in-browser engine; NOTE: **no `-ffast-math`** — it breaks cross-arch board-gen
   bit-parity, and the search doesn't need it): run `solver/build_wasm.sh` (emcc
-  single-file ESM → `public/fast_engine.js`), then validate with `python3
+  single-file ESM → `src/fast_engine.js`), then validate with `python3
   solver/validate_wasm.py`. On the iOS-faithful deal, offline self-play winrate is
   **~94–95%** (8000 sims). The old offline-over-predicts-live gap is **CLOSED**: after
   the battle/survivor recalibration above, a 100-game live run scored **94.0%** (CI

@@ -41,8 +41,8 @@ uv run python par_eval.py --games 1000 --sims 8000 --workers 9 # parallel winrat
 ./build_wasm.sh && uv run python validate_wasm.py    # rebuild + gate the browser engine
 ```
 
-To play in a browser, serve `../public/` statically — the engine runs in-browser as
-WASM, no Python needed (`cd ../public && python3 -m http.server`).
+To play in a browser, run `npm run dev` at the repo root — the engine runs
+in-browser as WASM, no Python needed.
 
 - **`fmcts.py`** — plans with the C UCT search but applies each move to the *real*
   seeded game (via the `network_wars` shim), so outcomes are genuine — the search
@@ -62,12 +62,12 @@ dependency is `numpy<2`. `fast_engine.so` is gitignored — rebuild with the `cc
 ## Search performance checks
 
 `search_bench.py before.so after.so` and
-`node search_bench.mjs before.mjs ../public/fast_engine.js` compare two builds
+`node search_bench.mjs before.mjs ../src/fast_engine.js` compare two builds
 using 48 seeded opening/midgame positions, ordinary and grading searches,
 4k fixed / 4k–8k adaptive budgets, and three alternating-order repetitions.
 Every root action, visit count, Q value, simulation total, and game RNG position
 must match. Preserve a baseline build before changing the engine; WASM baselines
-outside `public/` should use the `.mjs` extension.
+outside `src/` should use the `.mjs` extension.
 
 The September 2026 cleanup stores each uniform prior once per tree node, caches
 conditional capture strength and source logarithms, shares winner/count work,

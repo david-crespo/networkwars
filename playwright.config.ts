@@ -16,9 +16,8 @@ export default defineConfig({
   ],
   // Test what deploys: the staged site, service worker included.
   webServer: {
-    command: `python3 solver/build_site.py && python3 -m http.server ${PORT} --directory _site`,
+    command: `npx vite build && npx vite preview --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: !process.env.CI,
-    stderr: 'ignore', // http.server logs every request
   },
 })

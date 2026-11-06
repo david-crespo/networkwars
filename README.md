@@ -1,14 +1,12 @@
 # Network Wars
 
-Cloudflare serves the output of `python3 solver/build_site.py` as an assets-only
-Worker (`wrangler.jsonc`; `npm run deploy`, or connect the repo in the Cloudflare
-dashboard). The build places all page imports and worker dependencies under one
-content-based release URL so returning browsers cannot mix cached modules from
-different pushes. It uses the committed `public/fast_engine.js`: after changing the C
-engine, run `solver/build_wasm.sh` and commit the result.
-Local development can still serve `public/` directly. A service worker (`public/sw.js`)
-makes the page work offline after one visit while still loading each new deploy
-(the page is network-first, releases are cache-first). Gate: `python3 solver/site_gate.py`.
+The page is built with Vite (`npm run dev`, `npm run build` into `dist/`) and
+Cloudflare serves `dist/` as an assets-only Worker (`wrangler.jsonc`; `npm run
+deploy`, or connect the repo in the Cloudflare dashboard). It uses the committed
+`src/fast_engine.js`: after changing the C engine, run `solver/build_wasm.sh` and
+commit the result. A service worker (`src/sw.js`) makes the page work offline after
+one visit while still loading each new deploy (the page is network-first, the
+content-hashed assets cache-first). `npm run test:e2e` runs the Playwright tests.
 
 A faithful reproduction of Jim Rutt's **Network Wars** plus a strong AI player for it.
 You (RED) fight four deterministic bots (GREEN, YELLOW, BLUE, PURPLE) for control of a
@@ -21,7 +19,7 @@ bots, battle, reinforcement, win check, **and the search-based AI** — is one C
 | Path | What it is |
 |------|------------|
 | `solver/fast_engine.c` | **The single source of truth.** All rules + board generation + the iOS-faithful deal + the four bots + the decompiled fair-coin battle + reinforcement + the open-loop **C-UCT MCTS** (no neural net). |
-| `public/` | The **serverless browser game.** `fast_engine.c` compiled to WASM (`fast_engine.js`) runs the whole engine + search in a Web Worker; `index.html` is just the UI. No backend needed. |
+| `index.html`, `src/` | The **serverless browser game.** `fast_engine.c` compiled to WASM (`src/fast_engine.js`) runs the whole engine + search in a Web Worker; `src/main.js` is the UI. No backend needed. |
 | `solver/fmcts.py`, `solver/par_eval.py` | Headless self-play / parallel winrate evals (thin ctypes clients over the C engine). |
 | `solver/hard_ab.py` | Paired A/B of engine configs over the hard set of openings lost in live play (`solver/HARD_SET.md`). |
 
@@ -37,8 +35,8 @@ bots, battle, reinforcement, win check, **and the search-based AI** — is one C
 ## Quickstart
 
 ```sh
-# Play in a browser (no backend) — serve the static frontend
-cd public && python3 -m http.server      # -> http://127.0.0.1:8000/
+# Play in a browser (no backend)
+npm install && npm run dev               # -> http://localhost:5173/
 
 # Or run the AI headless: build the native engine, then evaluate
 cc -O3 -ffast-math -shared -fPIC solver/fast_engine.c -o solver/fast_engine.so

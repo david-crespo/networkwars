@@ -1,16 +1,16 @@
 // Complete AI games + full-budget grading, before/after WASM with exact parity.
-// node solver/latency_bench.mjs /tmp/before.mjs public/fast_engine.js [11,16]
+// node solver/latency_bench.mjs /tmp/before.mjs src/fast_engine.js [11,16]
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 const [before, after, seedArg = '11,16'] = process.argv.slice(2);
 if (!before || !after) throw new Error('Provide before and after WASM module paths');
-const wrapper = await readFile(new URL('../public/fastnw.js', import.meta.url), 'utf8');
+const wrapper = await readFile(new URL('../src/fastnw.js', import.meta.url), 'utf8');
 const factories = [];
 for (const path of [before, after]) {
   const source = wrapper.replace("'./fast_engine.js'", JSON.stringify(pathToFileURL(resolve(path)).href))
-    .replaceAll("'./game-version.js'", JSON.stringify(new URL('../public/game-version.js', import.meta.url).href));
+    .replaceAll("'./game-version.js'", JSON.stringify(new URL('../src/game-version.js', import.meta.url).href));
   factories.push((await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'))).loadEngine);
 }
 for (const seed of seedArg.split(',').map(Number)) {

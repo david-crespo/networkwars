@@ -1,20 +1,18 @@
 // Offline support without going stale. The page is fetched network-first (a
 // deploy shows up on the next load; offline or a stalled connection falls back to
-// the cached copy). Everything under assets/<hash>/ is content-addressed by
-// build_site.py and never changes, so it is served cache-first, one cache per
-// release. Each deploy rewrites RELEASE below, which changes this file's bytes,
-// so the browser installs the new worker and precaches the new release.
-// Served straight from public/ (local dev) RELEASE is null and everything is
-// network-first.
-const RELEASE = null;      // build_site.py: 'assets/<hash>'
-const PRECACHE = [];       // build_site.py: the release's module files
+// the cached copy). Every file under assets/ has a content hash in its name and
+// never changes, so it is served cache-first, from one cache per release. Each
+// build pins RELEASE and PRECACHE below (vite.config.ts), which changes this
+// file's bytes, so the browser installs the new worker and precaches the release.
+const RELEASE = null;      // vite.config.ts: the release id, also in the page's meta tag
+const PRECACHE = [];       // vite.config.ts: the release's assets/ files
 
 // CacheStorage is per origin, which may host other projects too.
 const PREFIX = 'networkwars-';
 const SHELL = `${PREFIX}shell`;
-const releaseCache = (hash) => `${PREFIX}${hash}`;
-const CURRENT = RELEASE && releaseCache(RELEASE.split('/').pop());
+const CURRENT = `${PREFIX}${RELEASE}`;
 const ROOT = new URL('./', self.location).href;
+const ASSETS = new URL('assets/', ROOT).pathname;
 const NAV_TIMEOUT_MS = 3000;   // then serve the cached page rather than wait
 
 self.addEventListener('install', (event) => event.waitUntil((async () => {
@@ -22,13 +20,13 @@ self.addEventListener('install', (event) => event.waitUntil((async () => {
   if (!page.ok) throw new Error(`page: HTTP ${page.status}`);
   // A deploy landing mid-install serves a newer page than this worker's release;
   // fail and let the next navigation install the matching worker instead.
-  if (RELEASE && !(await page.clone().text()).includes(`./${RELEASE}/`))
+  if (!(await page.clone().text()).includes(`content="${RELEASE}"`))
     throw new Error('page and worker are from different releases');
   const shell = await caches.open(SHELL);
   await shell.put(ROOT, page);
   const icon = await fetch('favicon.svg', { cache: 'no-cache' }).catch(() => null);
   if (icon?.ok) await shell.put(new URL('favicon.svg', ROOT).href, icon);
-  if (RELEASE) await (await caches.open(CURRENT)).addAll(PRECACHE.map((f) => `${RELEASE}/${f}`));
+  await (await caches.open(CURRENT)).addAll(PRECACHE);
   await self.skipWaiting();
 })()));
 
@@ -46,18 +44,19 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  const release = url.pathname.match(/\/assets\/([0-9a-f]{16})\//);
-  if (release) return event.respondWith(fromRelease(req, releaseCache(release[1])));
+  if (url.pathname.startsWith(ASSETS)) return event.respondWith(cacheFirst(req));
   const navigate = req.mode === 'navigate';
   if (!navigate && !/\.(js|svg|html)$/.test(url.pathname)) return;
   event.respondWith(networkFirst(event, url.origin + url.pathname, navigate));
 });
 
-async function fromRelease(req, name) {
-  const hit = await caches.match(req, { cacheName: name, ignoreSearch: true });
+// Any release's cache will do: the name pins the content. Ignore Vary: the page
+// loads its modules with crossorigin (an Origin header) but precaching does not.
+async function cacheFirst(req) {
+  const hit = await caches.match(req, { ignoreSearch: true, ignoreVary: true });
   if (hit) return hit;
   const res = await fetch(req);
-  if (res.ok) await (await caches.open(name)).put(req, res.clone());
+  if (res.ok) await (await caches.open(CURRENT)).put(req, res.clone());
   return res;
 }
 

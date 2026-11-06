@@ -1,4 +1,4 @@
-// Gate for public/review.js — the head-to-head page's decision scorer. Hosts
+// Gate for src/review.js — the head-to-head page's decision scorer. Hosts
 // engine.worker.js in real worker threads (one per pool worker, as the browser
 // does) and checks that the PARALLEL review of a recorded game is bit-identical
 // to a serial one-worker review of the same game: same Qs, gaps, labels, dead
@@ -9,7 +9,7 @@ import { Worker, isMainThread, parentPort, MessageChannel } from 'node:worker_th
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 
-const WK = new URL('../public/engine.worker.js', import.meta.url);
+const WK = new URL('../src/engine.worker.js', import.meta.url);
 if (!isMainThread) {
   globalThis.self = globalThis;
   globalThis.MessageChannel ??= MessageChannel;
@@ -17,12 +17,12 @@ if (!isMainThread) {
   await import(WK);
   parentPort.on('message', (d) => self.onmessage({ data: d }));
 } else {
-  const { createReviewer } = await import('../public/review.js');
-  const { createReplayInspector } = await import('../public/replay.js');
+  const { createReviewer } = await import('../src/review.js');
+  const { createReplayInspector } = await import('../src/replay.js');
   const baselineReviewer = process.argv[4]
     ? (await import(pathToFileURL(process.argv[4]))).createReviewer : createReviewer;
   const threads = [];
-  // Same contract as index.html's makeEngine: a request fn over a fresh worker.
+  // Same contract as main.js's makeEngine: a request fn over a fresh worker.
   const makeEngine = () => {
     const w = new Worker(new URL(import.meta.url)); threads.push(w);
     const pend = new Map(); let id = 0;

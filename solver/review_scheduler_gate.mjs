@@ -1,7 +1,7 @@
 // Deterministic orchestration tests; actual search/replay parity is review_gate.mjs.
 import assert from 'node:assert/strict';
-import { createReviewer, REVIEW_SIMS } from '../public/review.js';
-import { createReplayInspector } from '../public/replay.js';
+import { createReviewer, REVIEW_SIMS } from '../src/review.js';
+import { createReplayInspector } from '../src/replay.js';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -142,7 +142,7 @@ console.log('PASS: winning-position blunders retained; same-band extremes exclud
 // ---- the page's background-AI pump (nextAiSeed + aiPump, run as shipped) ----
 // It plays the seed you are on first and survives a seed it cannot play; both
 // were regressions that left every visible pair reading "AI —".
-const page = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const page = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const played = [], lanes = [];
 const pumpCtx = vm.createContext({ console: { warn() {} }, note() {}, reportError() {}, errMsg: String,
   M: { rounds: [], idx: 0 }, aiBusy: false, aiErr: {},
@@ -212,11 +212,11 @@ const loopCtx = vm.createContext({
   },
   sampleHist: (g, s) => g.hist.push(s.turn),
   recordEnd: (g, s) => { assert(s.over); g.result = 'won'; },
-  paintBadge() {}, save() {}, renderStrip() {}, refreshSeedPanel() {}, revealPair() {},
+  paintBadge() {}, save() {}, renderStrip() {}, refreshSeedPanel() {},
   sleep: tick,
 });
 vm.runInContext(page.slice(page.indexOf('async function aiPlaySeed(i)'),
-  page.indexOf('// A finished pair is the only informative unit')), loopCtx);
+  page.indexOf('// ============================ your play')), loopCtx);
 await loopCtx.aiPlaySeed(0);
 assert.equal(loopCtx.M.rounds[0].ai.moves.length, 1);
 assert.equal(aiGames.size, 0);

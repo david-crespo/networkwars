@@ -4,7 +4,7 @@
 // validate_wasm.py diffs against the NATIVE engine to prove board-gen parity.
 //
 //   node solver/wasm_gate.mjs [nseeds]
-import { loadEngine, FACTIONS } from '../public/fastnw.js';
+import { loadEngine, FACTIONS } from '../src/fastnw.js';
 import { createHash } from 'crypto';
 
 const N_SEEDS = parseInt(process.argv[2] || '1000', 10);

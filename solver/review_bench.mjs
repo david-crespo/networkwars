@@ -3,13 +3,13 @@
 // The larger search is a stability reference, not ground truth about optimal play.
 import { Worker, isMainThread, parentPort, MessageChannel } from 'node:worker_threads';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { tierOf } from '../public/review.js';
+import { tierOf } from '../src/review.js';
 
 if (!isMainThread) {
   globalThis.self = globalThis;
   globalThis.MessageChannel ??= MessageChannel;
   self.postMessage = m => parentPort.postMessage(m);
-  await import('../public/engine.worker.js');
+  await import('../src/engine.worker.js');
   parentPort.on('message', data => self.onmessage({ data }));
 } else {
   const seeds = (process.argv[2] || '11,17,23').split(',').map(Number);
@@ -59,7 +59,7 @@ if (!isMainThread) {
       rounds.push({ seed, rules: s.rules, you: { moves } });
       console.log(`Recorded seed ${seed}: ${moves.length} decisions, ${s.youWon ? 'win' : 'loss'}`);
     }
-    const source = await readFile(new URL('../public/review.js', import.meta.url), 'utf8');
+    const source = await readFile(new URL('../src/review.js', import.meta.url), 'utf8');
     const runs = {};
     for (const [name, limits] of [['current', [16000, 24000]], ['half', [8000, 12000]],
       ['reference', [referenceMax, referenceMax]]]) {
