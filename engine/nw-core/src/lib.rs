@@ -1,12 +1,12 @@
-//! Network Wars engine and open-loop UCT search: a Rust port of
-//! `solver/fast_engine.c`, kept bit-identical to its strict-IEEE builds
-//! (native clang with `-ffp-contract=off`, or emcc `-O3`).
+//! Network Wars engine and open-loop UCT search: board generation, rules, bots,
+//! battle, rollout and sweep-up policies, and search. Native and wasm builds do the
+//! same strict IEEE arithmetic (Rust never contracts to FMA), so they agree exactly.
 //!
-//! The C file keeps everything in globals. Here each piece of state has an
-//! owner: [`Topology`] (adjacency), [`CapTables`] (exact battle DP), the two
-//! RNG streams, and [`Search`] (the tree pools and the search knobs). [`Engine`]
-//! bundles one of each, which is what the C ABI crate exposes as its single
-//! global instance.
+//! Each piece of state has an owner: [`Topology`] (adjacency), [`CapTables`] (exact
+//! battle DP), the two RNG streams, and [`Search`] (the tree pools and the search
+//! knobs). [`Engine`] bundles one of each, which is what the C ABI crate exposes as
+//! its single global instance. (The C engine this began as, since removed, kept all
+//! of it in globals.)
 
 mod battle;
 mod board_gen;
@@ -105,8 +105,8 @@ pub fn bits(mut mask: u64) -> impl Iterator<Item = usize> {
     })
 }
 
-/// A RED action: attack `from -> to`, or end the turn. Packed as the C engine
-/// packs it (`from << 8 | to`, END = -1) so tree edges stay 4 bytes.
+/// A RED action: attack `from -> to`, or end the turn. Packed as the original C engine
+/// did (`from << 8 | to`, END = -1) so tree edges stay 4 bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Action(pub i32);
 
@@ -133,7 +133,7 @@ pub enum RngChoice {
     Sim,
 }
 
-/// One engine instance: what the C file holds in globals.
+/// One engine instance: what the original C engine held in globals.
 pub struct Engine {
     pub topo: Topology,
     pub tables: CapTables,
@@ -144,7 +144,7 @@ pub struct Engine {
 }
 
 /// Run `$body` with `$rng` bound to the engine's active stream, monomorphized
-/// per stream (the C file calls through a function pointer instead).
+/// per stream (the original C engine used a function pointer).
 #[macro_export]
 macro_rules! with_rng {
     ($engine:expr, |$rng:ident| $body:expr) => {

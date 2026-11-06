@@ -522,3 +522,90 @@ impl Search {
         self.sims
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SplitMix64;
+
+    /// Every coin hits.
+    struct Hits;
+    impl Rng for Hits {
+        fn next_f64(&mut self) -> f64 {
+            0.0
+        }
+    }
+
+    fn line(n: usize) -> Topology {
+        let lists: Vec<Vec<usize>> = (0..n)
+            .map(|i| {
+                [i.checked_sub(1), (i + 1 < n).then_some(i + 1)]
+                    .into_iter()
+                    .flatten()
+                    .collect()
+            })
+            .collect();
+        Topology::from_lists(&lists)
+    }
+
+    /// At the turn horizon END ends the game, and a plurality is a loss.
+    #[test]
+    fn horizon_is_a_loss() {
+        let topo = Topology::from_lists(&vec![Vec::<usize>::new(); 30]);
+        let owner: Vec<i32> = (0..30).map(|i| (i >= 18) as i32).collect();
+        let mut board = Board::from_slices(&owner, &[1; 30]);
+        let mut turns = MAX_TURNS;
+        let result = apply_red(&topo, &mut SplitMix64(1), &mut board, Action::END, &mut turns);
+        assert_eq!(result, Some(false));
+    }
+
+    /// A terminal outcome at a chance child must not be cached as a proof.
+    #[test]
+    fn terminal_chance() {
+        let topo = line(2);
+        let board = Board::from_slices(&[0, 1], &[1, 3]);
+        let mut tables = CapTables::new();
+        let mut s = Search::default();
+        s.begin(&topo, &board, 1, 10, 10, 2.5, 1).unwrap();
+        s.simulate(&topo, &mut tables, &mut SplitMix64(0x12345678)); // expand root: only END
+        s.simulate(&topo, &mut tables, &mut Hits); // green captures RED: one terminal sample
+        let e = s.edges[s.nodes[0].child_off as usize];
+        assert_eq!((e.n, e.w), (1, 0.0));
+        assert_eq!(e.child, NO_CHILD);
+    }
+
+    /// Open-loop nodes keep the union of legal actions and offer only the
+    /// ones legal on the current board, keeping each edge's stats.
+    #[test]
+    fn action_union() {
+        let topo = line(3);
+        let mut s = Search::default();
+        let (mut legal, mut available) = ([Action::END; MAXCHILD], [0usize; MAXCHILD]);
+        let board = Board::from_slices(&[0, 1, 2], &[3, 1, 1]);
+        s.begin(&topo, &board, 1, 10, 10, 2.5, 1).unwrap();
+        let nc = legal_red(&topo, &board, &mut legal);
+        assert!(s.sync_actions(0, &legal[..nc], &mut available));
+        let end = s.nodes[0].child_off as usize + available[nc - 1];
+        (s.edges[end].n, s.edges[end].w, s.edges[end].child) = (7, 4.0, 42);
+
+        // Another outcome owns node 1 with a mobile stack, making 1->2 newly legal.
+        let board = Board::from_slices(&[0, 0, 2], &[1, 2, 1]);
+        let nc = legal_red(&topo, &board, &mut legal);
+        assert!(s.sync_actions(0, &legal[..nc], &mut available));
+        assert_eq!((nc, s.nodes[0].n_children), (2, 3));
+        let off = s.nodes[0].child_off as usize;
+        assert_eq!(s.edges[off + available[0]].action, Action::attack(1, 2));
+        let e = s.edges[off + available[1]];
+        assert_eq!((e.action, e.n, e.w, e.child), (Action::END, 7, 4.0, 42));
+
+        // No mobile stack: only END is available even though the union has attacks.
+        let board = Board::from_slices(&[0, 0, 2], &[1, 1, 1]);
+        let nc = legal_red(&topo, &board, &mut legal);
+        assert!(s.sync_actions(0, &legal[..nc], &mut available));
+        assert_eq!(nc, 1);
+        assert_eq!(
+            s.edges[s.nodes[0].child_off as usize + available[0]].action,
+            Action::END
+        );
+    }
+}

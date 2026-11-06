@@ -3,7 +3,7 @@
 Max noticed in live play that a bot always continues attacking with the stack it
 just moved, and never returns to a stack it had already used that turn. Both
 observations are correct — this recovers the actual opponent-AI loop from the
-shipped IPA and it is now the engine's `run_bot_turn` (fast_engine.c).
+shipped IPA and it is now the engine's `run_bot_turn` (now in `engine/nw-core/src/rules.rs`).
 
 ## Where it lives
 
@@ -70,7 +70,7 @@ shipped app has its own self-play harness. These are dev-config surface only
 noted in the untracked `ipa_decompile/` notes, deliberately kept out of this
 repo) and don't touch the rules our engine models.
 
-## What shipped (fast_engine.c)
+## What shipped (engine/nw-core/src/rules.rs)
 
 `bot_turn_begin/bot_turn_next` expose the turn as a cursor (snapshot + sorted
 island list + chain head packed in an int32 buffer) so the browser worker can

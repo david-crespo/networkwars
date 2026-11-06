@@ -1,8 +1,8 @@
 # Network Wars — engine + solver
 
-One implementation of the whole game, in C, with thin clients around it (Python for
+One implementation of the whole game, in Rust, with thin clients around it (Python for
 headless eval, WASM for the browser). Everything plays **RED against the four fixed
-deterministic bots** — the only matchup the game has. The player is a **pure C-UCT
+deterministic bots** — the only matchup the game has. The player is a **pure UCT
 MCTS** (no neural net, no seed/RNG exploitation): offline self-play winrate is **~94%**
 on the iOS-faithful deal, and a 100-game live run **matches it** (94.0%) — the old
 sim-vs-live gap closed once the deal and battle were made faithful (the battle is the
@@ -15,16 +15,16 @@ attack/terminal validation, and a reinforcement edge case. New games use rules v
 saved v1 games retain their original boards and dice. Earlier win-rate measurements
 in this document predate the placement correction.
 
-- **`fast_engine.c` → `fast_engine.so`** — the only implementation of board
+- **`../engine/` (`nw-core` → `libnw_engine.dylib` / `nw_engine.wasm`)** — the only implementation of board
   generation + the iOS deal, the four bots (the decompiled opponent AI,
   `REAL_BOT_DECOMPILED.md`), the decompiled fair-coin battle
-  (`REAL_BATTLE_DECOMPILED.md`), reinforcement, win check, and the open-loop C-UCT search
+  (`REAL_BATTLE_DECOMPILED.md`), reinforcement, win check, and the open-loop UCT search
   (ranked **C1** rollout baked in). mulberry32 for the real seeded game; a private
   splitmix64 for search dice so the search never sees the real game's dice.
 - **`fastnw.py`** — thin ctypes client: marshals `(owner, strength)` int32 arrays
   in/out, exposes `new_game`, the rule primitives, and `uct_search`. No rules here.
 - **`network_wars.py`** — a readable `State`/`Node` shim that delegates every rule
-  to the C engine, so the Python analysis tools keep a convenient object API.
+  to the engine, so the Python analysis tools keep a convenient object API.
 - **`validate_fast.py`** — the native regression gate: board/deal/battle invariants
   over 1000 seeds + frozen golden-seed game outcomes. **`validate_wasm.py`** is the
   sibling WASM gate (board-gen bit-parity vs native + battle/survivor mean+variance
@@ -33,7 +33,7 @@ in this document predate the placement correction.
 ## Run it
 
 ```sh
-cc -O3 -ffast-math -shared -fPIC fast_engine.c -o fast_engine.so
+../engine/build.sh                                   # native library + wasm
 uv run python validate_fast.py                       # native regression gate
 uv run python fmcts.py --games 120 --sims 3200 --c-puct 2.5   # one process
 uv run python par_eval.py --games 1000 --sims 8000 --workers 9 # parallel winrate
@@ -42,9 +42,9 @@ uv run python par_eval.py --games 1000 --sims 8000 --workers 9 # parallel winrat
 ```
 
 To play in a browser, run `npm run dev` at the repo root — the engine runs
-in-browser as WASM (the Rust port in `../engine/`), no Python needed.
+in-browser as WASM (built from `../engine/`), no Python needed.
 
-- **`fmcts.py`** — plans with the C UCT search but applies each move to the *real*
+- **`fmcts.py`** — plans with the UCT search but applies each move to the *real*
   seeded game (via the `network_wars` shim), so outcomes are genuine — the search
   never sees the game seed. Best config (baked into the engine): ranked C1 rollout,
   `c_puct=2.5`, `sims=1600–3200`.
@@ -57,11 +57,11 @@ backed-up Q of the chosen move. It falls out of the MCTS (no separate calibratio
 model) and tracks real outcomes at AUC ~0.955.
 
 Deps are managed with `uv` (`pyproject.toml` / `uv.lock`); the only runtime
-dependency is `numpy<2`. `fast_engine.so` is gitignored — rebuild with the `cc` line.
+dependency is `numpy<2`. The native library is gitignored — rebuild with `../engine/build.sh`.
 
 ## Search performance checks
 
-`search_bench.py before.so after.so` and
+`search_bench.py before.dylib after.dylib` and
 `node search_bench.mjs before.wasm ../src/nw_engine.wasm` compare two builds
 using 48 seeded opening/midgame positions, ordinary and grading searches,
 4k fixed / 4k–8k adaptive budgets, and three alternating-order repetitions.
@@ -98,11 +98,11 @@ count for comparison.
 
 ## Search math audit
 
-Run `bash solver/check.sh` from the repository root to rebuild both engines and
+Run `bash solver/check.sh` from the repository root to rebuild the engine and
 run all gameplay, math, saved-game compatibility, worker, and review gates.
 
 See [MATH_AUDIT.md](MATH_AUDIT.md) for sampled-legality and chance-terminal fixes,
 consistent rollout horizons, exact large-stack battle estimates, corrected grading,
 and projection alignment. The displayed win values remain search estimates.
-Focused gates: `cc -O2 math_gate.c -lm -o /tmp/nw-math-gate && /tmp/nw-math-gate`,
+Focused gates: `(cd ../engine && cargo nextest run --release)`,
 `node projection_gate.mjs`, and `node review_scheduler_gate.mjs`.

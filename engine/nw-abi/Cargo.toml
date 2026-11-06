@@ -10,6 +10,3 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 nw-core = { path = "../nw-core" }
-
-[dev-dependencies]
-libloading = "0.9.0"

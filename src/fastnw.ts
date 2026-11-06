@@ -4,7 +4,7 @@
 // the wasm heap, calls the exported C-ABI functions, and copies results back. It
 // implements NO game rules itself: the engine is the single source of truth for
 // board-gen, the four bots, the fair-coin-attrition battle, reinforcement, and the
-// C-UCT search.
+// UCT search.
 //
 // owner encoding: red=0, green=1, yellow=2, blue=3, purple=4 (= FACTIONS index).
 // Two RNG streams in the engine: useMb32(seed) = the real seeded mulberry32 game
@@ -38,7 +38,7 @@ type Ptr = number;
 export type Adj = number[][];
 export type Link = [number, number];
 
-/** The engine's wasm exports (engine/nw-abi): the C ABI of solver/fast_engine.c. */
+/** The engine's wasm exports (engine/nw-abi), through a C ABI. */
 export interface Exports {
   memory: WebAssembly.Memory;
   nw_malloc(bytes: number): Ptr;
@@ -251,7 +251,7 @@ export class Engine {
     this._getBack(this._strength, strength);
   }
 
-  // Replay without animation logs: the same C primitives and real game dice.
+  // Replay without animation logs: the same engine primitives and real game dice.
   replayMove(owner: Int32Array, strength: Int32Array, move: Move) {
     if (!move.e && (!Array.isArray(move.a) || owner[move.a[0]] !== 0 ||
         !this.isLegalAttack(owner, strength, move.a[0], move.a[1])))
@@ -272,8 +272,8 @@ export class Engine {
     return !!this.wasm.ext_attack_legal(this._owner, this._strength, frm, to);
   }
 
-  // ---- sweep-up (mop-up policy + its certificate; see fast_engine.c) ----
-  // The rule the sweep plays, straight from C — the pages must not keep their own
+  // ---- sweep-up (mop-up policy + its certificate; see engine/nw-core/src/policy.rs) ----
+  // The rule the sweep plays, straight from the engine — the pages must not keep their own
   // copy, or the policy that gets certified stops being the policy that plays.
   sweepMove(owner: Int32Array, strength: Int32Array): MoveRef | null {
     this._put(this._owner, owner);

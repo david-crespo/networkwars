@@ -4,7 +4,7 @@ The page is TypeScript built with Vite (`npm run dev`, `npm run build` into `dis
 `npm run typecheck`) and
 Cloudflare serves `dist/` as an assets-only Worker (`wrangler.jsonc`; `npm run
 deploy`, or connect the repo in the Cloudflare dashboard). It uses the committed
-`src/nw_engine.wasm`, the Rust port of the engine in `engine/`: after changing it,
+`src/nw_engine.wasm`, the Rust engine in `engine/`: after changing it,
 run `engine/build.sh` and commit the result. A service worker (`src/sw.ts`) makes the page work offline after
 one visit while still loading each new deploy (the page is network-first, the
 content-hashed assets cache-first). `npm run test:e2e` runs the Playwright tests.
@@ -12,18 +12,16 @@ content-hashed assets cache-first). `npm run test:e2e` runs the Playwright tests
 A faithful reproduction of Jim Rutt's **Network Wars** plus a strong AI player for it.
 You (RED) fight four deterministic bots (GREEN, YELLOW, BLUE, PURPLE) for control of a
 30-node graph; first faction to hold **24 nodes** wins. The whole game — board, deal,
-bots, battle, reinforcement, win check, **and the search-based AI** — is one C file
-(`solver/fast_engine.c`), compiled natively for headless play, plus a bit-identical Rust
-port (`engine/`) compiled to WASM for the browser.
+bots, battle, reinforcement, win check, **and the search-based AI** — is one Rust engine
+(`engine/`), compiled to WASM for the browser and to a native library for headless play.
 
 ## What's here
 
 | Path | What it is |
 |------|------------|
-| `solver/fast_engine.c` | **The single source of truth.** All rules + board generation + the iOS-faithful deal + the four bots + the decompiled fair-coin battle + reinforcement + the open-loop **C-UCT MCTS** (no neural net). |
-| `engine/` | The Rust port of `fast_engine.c`, bit-identical to its strict-IEEE build and checked against it by differential tests; builds `src/nw_engine.wasm`. |
+| `engine/` | **The single source of truth** (Rust). All rules + board generation + the iOS-faithful deal + the four bots + the decompiled fair-coin battle + reinforcement + the open-loop **UCT MCTS** (no neural net). Builds `src/nw_engine.wasm` and the native `libnw_engine.dylib`. |
 | `index.html`, `src/` | The **serverless browser game.** The Rust engine compiled to WASM (`src/nw_engine.wasm`) runs the whole engine + search in a Web Worker; `src/main.ts` is the UI. No backend needed. |
-| `solver/fmcts.py`, `solver/par_eval.py` | Headless self-play / parallel winrate evals (thin ctypes clients over the C engine). |
+| `solver/fmcts.py`, `solver/par_eval.py` | Headless self-play / parallel winrate evals (thin ctypes clients over the native engine). |
 | `solver/hard_ab.py` | Paired A/B of engine configs over the hard set of openings lost in live play (`solver/HARD_SET.md`). |
 
 ## Docs
@@ -41,18 +39,17 @@ port (`engine/`) compiled to WASM for the browser.
 # Play in a browser (no backend)
 npm install && npm run dev               # -> http://localhost:5173/
 
-# Or run the AI headless: build the native engine, then evaluate
-cc -O3 -ffast-math -shared -fPIC solver/fast_engine.c -o solver/fast_engine.so
+# Or run the AI headless: build the engine (wasm + native library), then evaluate
+engine/build.sh
 uv run python solver/validate_fast.py                          # regression gate
 uv run python solver/par_eval.py --games 1000 --sims 8000 --workers 9
 ```
 
-A rules or search change goes in both `fast_engine.c` and `engine/`. Rebuild the browser
-engine with `engine/build.sh`, then check it with `(cd engine && cargo nextest run
---release)` (differential tests vs the C) and `uv run python solver/validate_wasm.py`
+After a rules or search change, rebuild with `engine/build.sh`, then check it with
+`(cd engine && cargo nextest run --release)` and `uv run python solver/validate_wasm.py`
 (board-gen bit-parity vs native). Python deps are
-managed with `uv`; the only runtime dependency is `numpy<2`. `fast_engine.so` is
-gitignored — rebuild with the `cc` line.
+managed with `uv`; the only runtime dependency is `numpy<2`. The native library
+(`engine/target/release/libnw_engine.dylib`) is gitignored — rebuild with `engine/build.sh`.
 
 ## The AI
 
@@ -60,7 +57,7 @@ The win-rate measurements below predate the September 2026 correction to startin
 grouping. New games use the corrected placement; historical saved games retain their
 original boards and dice. Win rate on the new opening distribution has not been remeasured.
 
-A **pure C-UCT MCTS** (open-loop, ranked-C1 rollout baked in, `c_puct=2.5`) — no neural
+A **pure UCT MCTS** (open-loop, ranked-C1 rollout baked in, `c_puct=2.5`) — no neural
 net, no seed/RNG exploitation. Offline self-play winrate is **~94%** on the iOS-faithful
 deal, and a 100-game live run against the real app **matches it** (~94%) — the old
 sim-over-predicts-live gap closed once the deal and battle were made faithful (the

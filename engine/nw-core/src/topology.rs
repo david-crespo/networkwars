@@ -1,5 +1,5 @@
 //! Adjacency in CSR form. Neighbor order matters: bots and the search break
-//! ties by it, so it must match the C engine's append order exactly.
+//! ties by it, so changing it changes play (the golden traces freeze it).
 
 use crate::{Board, Faction, MAXN, NF, bits};
 use std::ops::Range;

@@ -20,8 +20,6 @@ ipa_decompile/
 solver/hard_*.jsonl
 !solver/hard_set.jsonl
 
-# compiled C engine (built from solver/fast_engine.c)
-solver/fast_engine.so
 
 # Claude Code worktree scaffolding
 .claude/

@@ -1,7 +1,7 @@
-"""Regression gate for the C engine (fast_engine.so).
+"""Regression gate for the native engine (see fastnw.py).
 
-Python is now a thin client of the C engine, so there is no longer an independent
-pure-Python oracle to diff against (the old C<->Py bit-parity check). Instead this
+Python is a thin client of the engine, so there is no longer an independent
+pure-Python oracle to diff against (the old engine<->Py bit-parity check). Instead this
 asserts the engine's structural invariants over many seeds plus a few frozen
 golden-seed game outcomes, so accidental drift in board-gen / battle / bots / deal
 is caught. Run: uv run python validate_fast.py [nseeds]
@@ -17,7 +17,7 @@ import fastnw
 # the engine is meant to change; an unexpected diff here means a behavior drift.
 GOLDEN = {
     # Re-frozen 2026-09-07 for recovered starting-army grouping (rules v2).
-    # rules_gate.c independently verifies the pair/triple constraints; legacy
+    # engine/nw-core/tests/rules.rs independently verifies the pair/triple constraints; legacy
     # seed outcomes/dice remain frozen separately in legacy_rules_gate.py.
     (1, 'safe_expand'): ('purple', 9),  (1, 'random_all'): ('blue', 5),
     (2, 'safe_expand'): ('blue', 8),    (2, 'random_all'): ('yellow', 10),

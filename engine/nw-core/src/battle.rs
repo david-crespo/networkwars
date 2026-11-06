@@ -475,4 +475,44 @@ mod tests {
             assert_eq!((p.to_bits(), s.to_bits()), (wp.to_bits(), ws.to_bits()), "at {a} vs {d}");
         }
     }
+
+    /// Large-stack estimates match the main tables where they overlap, and
+    /// the two-row DP exactly past them: growing each dimension separately
+    /// and together, revisiting cells, and crossing the extension's bound.
+    #[test]
+    fn large_estimates_are_exact() {
+        let mut t = CapTables::new();
+        assert_eq!(t.capture_prob(1, 0), 0.0);
+        assert_eq!(t.capture_prob(2, 0), 1.0);
+        assert!((t.capture_prob(2, 1) - 5.0 / 6.0).abs() < 1e-12);
+        for a in (2..MAXS).step_by(13) {
+            for d in (1..MAXS).step_by(17) {
+                let e = t.large_estimate(a as i32, d as i32);
+                assert!((e.p - t.capp[a][d]).abs() < 1e-12);
+                assert!((e.strength - t.capes[a][d]).abs() < 1e-10);
+            }
+        }
+        let pairs = [
+            (160, 1),
+            (180, 200),
+            (400, 160),
+            (160, 400),
+            (511, 511),
+            (700, 900),
+            (1023, 1023),
+            (160, 200),
+            (1024, 160),
+            (160, 1024),
+            (1400, 1100),
+        ];
+        for (a, d) in pairs {
+            let e = t.large_estimate(a as i32, d as i32);
+            let (pp, ps) = two_row_dp(a, d).unwrap();
+            assert_eq!((e.p, e.strength), (pp, conditional(pp, ps)), "({a}, {d})");
+        }
+        assert!(t.capture_prob(400, 160) > 0.999999);
+        assert!(t.capture_prob(160, 400) < 0.000001);
+        assert_eq!(t.expected_occupier(400, 0), 399.0);
+        assert!(t.expected_occupier(400, 1) > 397.0);
+    }
 }

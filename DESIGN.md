@@ -1,7 +1,7 @@
 # Network Wars — Design Doc
 
-A faithful, minimal reproduction of Jim Rutt's **Network Wars**. All rules live in one C
-implementation (`solver/fast_engine.c`); the browser frontend runs that engine in-process
+A faithful, minimal reproduction of Jim Rutt's **Network Wars**. All rules live in one Rust
+implementation (`engine/`); the browser frontend runs that engine in-process
 as WASM, and a Python ctypes client drives it headlessly. The same game can be driven by a
 human (via the web UI) or by a program (bot / search).
 
@@ -117,11 +117,10 @@ their boards and dice are preserved. The version is stored with each new round.
 
 ## 8. Architecture
 
-- **Engine**: a C implementation (`solver/fast_engine.c`) of all rules + board
-  generation + the C-UCT search, and a bit-identical Rust port of it (`engine/`). There
-  is no JS rules engine. The C is built natively (`fast_engine.so`, driven by Python
-  ctypes via `fastnw.py`); the Rust is built to **WASM** (`src/nw_engine.wasm`) for the
-  browser, about 1.9x faster than the C compiled to WASM.
+- **Engine**: a Rust implementation (`engine/`) of all rules + board
+  generation + the UCT search. There is no JS rules engine. It is built natively
+  (`libnw_engine.dylib`, driven by Python ctypes via `fastnw.py`) and to **WASM**
+  (`src/nw_engine.wasm`) for the browser; `engine/build.sh` builds both.
 - **Browser frontend**: `index.html` + `src/` are self-contained. The WASM engine + search run in a Web
   Worker (`engine.worker.ts`, which holds game state and speaks the `/api/game/*` contract
   over postMessage); `src/main.ts` is just canvas rendering and input. **No backend needed**
@@ -135,7 +134,7 @@ their boards and dice are preserved. The version is stored with each new round.
 | GET  `/api/game/:id`       | —                     | Current state |
 | POST `/api/game/:id/attack`| `{from, to}`          | Resolve one battle (RED's turn only) |
 | POST `/api/game/:id/end-turn` | —                  | Run all bot turns + reinforcements |
-| POST `/api/game/:id/search`| `{sims?, maxSims?, grade?, ...}` | C-UCT search from the current position; returns ranked root moves + win% |
+| POST `/api/game/:id/search`| `{sims?, maxSims?, grade?, ...}` | UCT search from the current position; returns ranked root moves + win% |
 | POST `/api/game/:id/sweep-check` | `{trials?, maxLosses?}` | Monte-Carlo certificate of the mop-up policy (sweep-up offer gate) |
 
 State payload: `{ id, nodes:[{id,x,y,owner,strength}], links:[[a,b]], counts:{red,...},

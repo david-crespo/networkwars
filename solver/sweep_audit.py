@@ -31,7 +31,7 @@ import numpy as np
 import fastnw
 
 RED = 0
-MAX_TURNS = 400          # engine's own cap (see fast_engine.c MAX_TURNS)
+MAX_TURNS = 400          # engine's own cap (see MAX_TURNS in engine/nw-core/src/lib.rs)
 SWEEP_Q = 0.9995
 
 # The live worker's value-stop config (src/engine.worker.ts).

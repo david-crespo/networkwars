@@ -1,8 +1,8 @@
 """Time several native engine builds on search_bench.py's positions, without
-the parity assertion (builds with different FP contraction or -ffast-math
-pick different moves, so only the work per search is comparable).
+the parity assertion (builds with different FP contraction pick different
+moves, so only the work per search is comparable).
 
-  uv run --project solver python engine/time_native.py a.so b.dylib ... [--seeds 12]
+  uv run --project solver python engine/time_native.py a.dylib b.dylib ... [--seeds 12]
 
 Each position runs every build in a rotating order; reports total seconds,
 simulations, and µs per simulation (sims can differ where adaptive stops

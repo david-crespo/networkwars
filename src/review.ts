@@ -1,7 +1,7 @@
 // Decision scoring for the head-to-head page: replay YOUR recorded game and grade
 // every decision against a grading-mode search, in parallel across a pool of
 // dedicated engine workers. Pure orchestration over engine.worker.ts — no game
-// rules live here (all of those are fast_engine.c). The page owns the model,
+// rules live here (all of those are in engine/nw-core). The page owns the model,
 // persistence and rendering; this module only turns a round into a review.
 import { LEGACY_RULES_VERSION } from './game-version.ts';
 import type { Api, GameView, Label, NodeView, Review, ReviewMove, Round, SearchResult } from './types.ts';

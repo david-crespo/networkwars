@@ -28,7 +28,7 @@ Reference: `~/Downloads/ScreenRecording_09-06-2026 23-16-11_1.MP4`
 - Reinforcement is a distinct pulse across the receiving nodes after attacks.
   The active faction counter follows the turn, and counts track each capture.
 - Expert features belong around this readable board; the battle rules and
-  private search RNG remain the C engine's responsibility.
+  private search RNG remain the Rust engine's responsibility.
 
 
 ## Completion and verification

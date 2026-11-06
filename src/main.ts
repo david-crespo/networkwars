@@ -1,5 +1,5 @@
 // ============================================================================
-// Head-to-head: continuous DUPLICATE-format play against the C-UCT engine, with the
+// Head-to-head: continuous DUPLICATE-format play against the UCT engine, with the
 // AI playing the same seed CONCURRENTLY in a second worker.
 //
 // Why two workers: engine.worker.ts serves its inbox strictly in order and aborts an
@@ -23,7 +23,7 @@
 // actions differ.
 //
 // All rendering/animation comes from board.ts; all rules and
-// search come from fast_engine.c via engine.worker.ts. This file is bookkeeping and
+// search come from the engine (engine/nw-core) via engine.worker.ts. This file is bookkeeping and
 // presentation only.
 // ============================================================================
 import { Board, ORDER, SPEEDS, sleep, drawThumb } from './board.ts';
@@ -676,7 +676,7 @@ $('bolt').onclick = () => {
 
 // ============================ sweep-up ============================
 // Off-by-default assist (nwSweep toggle): after each of
-// your moves the worker certifies the mop-up policy from fast_engine.c by PLAYING
+// your moves the worker certifies the mop-up policy from the engine by PLAYING
 // IT OUT SWEEP_TRIALS times on fresh dice; if none of them lose, a banner offers to
 // auto-play the rest with it — through yourAttack/yourEndTurn, so swept moves are
 // recorded, animated and scored exactly like taps. It re-certifies before every
@@ -741,7 +741,7 @@ async function runSweep() {
       const chk = await api<SweepCheck>(`/api/game/${gid}/sweep-check`, 'POST',
         { trials: SWEEP_STEP_TRIALS, maxLosses: SWEEP_STEP_LOSSES });
       if (!chk.ok) break;
-      const m = chk.move;                // from C — the same policy that was certified
+      const m = chk.move;                // from the engine — the same policy that was certified
       if (m) await yourAttack(m.from, m.to);
       else await yourEndTurn();
     }

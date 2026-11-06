@@ -83,11 +83,13 @@ cautious descriptive signal, not a calibrated test of underlying skill.
 
 ## Validation
 
-- `math_gate.c`: sampled action legality across 40 seeds and up to three positions
+- `math_gate.c` (since ported to Rust tests: unit tests in
+  `engine/nw-core/src/search.rs` and `battle.rs`, and `engine/nw-abi/tests/abi.rs`):
+  sampled action legality across 40 seeds and up to three positions
   per seed; action-union growth/stat preservation; chance terminals; horizons;
   exact large-stack DP; finite values; grade budget; terminal roots; streaming
-  determinism and idempotent completion. Also run with address/undefined-behavior
-  sanitizers.
+  determinism and idempotent completion. It was also run with address/undefined-behavior
+  sanitizers; that is not done for the Rust tests.
 - Native invariants and battle moment tests over 1,000 boards, 4,000 battles per
   tested strength pair, and frozen scripted-game outcomes.
 - WASM invariants/battle tests and native–WASM board parity over 1,000 boards.

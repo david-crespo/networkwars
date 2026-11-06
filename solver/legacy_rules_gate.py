@@ -1,6 +1,6 @@
 """Saved-game compatibility: frozen pre-audit boards, dice, and eight bot rounds.
 
-Run after rebuilding: uv run python solver/legacy_rules_gate.py
+Run after rebuilding (engine/build.sh): uv run python solver/legacy_rules_gate.py
 The digest includes topology, coordinates, ownership, armies and dice position
 for 1,000 seeds. The expected value was captured from the pre-audit engine.
 """
@@ -38,8 +38,8 @@ def fingerprint(path, entry="new_game_legacy"):
 
 
 if __name__ == "__main__":
-    path = Path(__file__).with_name("fast_engine.so")
-    actual = fingerprint(path)
+    from fastnw import ENGINE_SO
+    actual = fingerprint(ENGINE_SO)
     expected = "9986e5e75e0b471cefbe95cc3134857936232793ea1719a38371ff1c4e86d945"
     assert actual == expected, f"legacy saved games drifted: {actual}"
     print("LEGACY-RULES-GATE: PASS (1,000 saved seeds and their bot rounds)")

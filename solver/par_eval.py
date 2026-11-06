@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Parallel C-UCT self-play winrate eval. Splits seeds across processes.
+"""Parallel UCT self-play winrate eval. Splits seeds across processes.
 Engine binary chosen via NW_ENGINE_SO env var (set BEFORE running so worker
 imports pick it up). Usage:
-  NW_ENGINE_SO=./fast_engine.so python par_eval.py --games 1000 --sims 8000 --workers 9
+  NW_ENGINE_SO=path/to/libnw_engine.dylib python par_eval.py --games 1000 --sims 8000 --workers 9
 """
 import argparse, os, time
 from multiprocessing import Pool
@@ -40,7 +40,7 @@ def main():
     chunks = [seeds[i::nchunks] for i in range(nchunks)]
     tasks = [(c, a.sims, a.c_puct, a.nroll, max_sims) for c in chunks if c]
 
-    print(f'ENGINE={os.environ.get("NW_ENGINE_SO","(default fast_engine.so)")}', flush=True)
+    print(f'ENGINE={os.environ.get("NW_ENGINE_SO","(default engine build)")}', flush=True)
     print(f'eval: {a.games} games, sims={a.sims}'
           f'{f"-{a.max_sims} adaptive" if max_sims else ""}, c_puct={a.c_puct}, '
           f'{a.workers} workers', flush=True)

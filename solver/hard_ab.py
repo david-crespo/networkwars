@@ -6,14 +6,14 @@ same (board, dice-seed) pairs under one ARM (engine config), writing per-pair
 outcomes so two arms can be compared PAIRED (McNemar on discordant pairs) — the
 only way to see a small real effect through battle-dice noise.
 
-Engine variants that need C changes are selected with NW_ENGINE_SO=path; levers
+Engine variants that need engine changes are selected with NW_ENGINE_SO=path; levers
 already exposed as setters are plain flags (--c-puct, --sims, --nroll,
 --value-stop). One arm per run, like bench_ab.py.
 
   # baseline arm
   uv run python hard_ab.py --name base --band contested --seeds 40 --sims 8000
   # a variant engine
-  NW_ENGINE_SO=./fast_engine_fpu.so uv run python hard_ab.py \
+  NW_ENGINE_SO=./libnw_engine_fpu.dylib uv run python hard_ab.py \
       --name fpu --band contested --seeds 40 --sims 8000
   # compare
   uv run python hard_ab.py --compare hard_base.jsonl hard_fpu.jsonl
@@ -169,7 +169,7 @@ def main():
     items = [(r['board'], bkey(r['board']), sd) for r in rows for sd in seeds]
     print(f"arm '{a.name}': {len(rows)} openings ({a.band}) x {a.seeds} seeds "
           f"= {len(items)} games @ {a.sims} sims  "
-          f"[engine={os.environ.get('NW_ENGINE_SO','fast_engine.so')}]", flush=True)
+          f"[engine={os.environ.get('NW_ENGINE_SO','default engine build')}]", flush=True)
 
     chunks = [items[i::a.workers] for i in range(a.workers)]
     tasks = [(c, a.sims, a.min_sims or a.sims, a.c_puct, a.nroll, a.value_stop,

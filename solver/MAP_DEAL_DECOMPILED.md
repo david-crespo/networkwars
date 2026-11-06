@@ -16,7 +16,7 @@ generation logic lives in `UtilsDLL.MapMaker` (+ `Utils.makeMap`).
 **Status: the pipeline is fully mapped and most functions are hand-decoded and
 confirmed. The one randomized core — `getBigArmies`'s growth loop — still needs
 Unicorn emulation to pin bit-exactly before shipping (see "TODO" at the end).**
-This doc is the recovered spec, not yet wired into `fast_engine.c`.
+This doc is the recovered spec, not yet wired into the engine (now `engine/nw-core/src/board_gen.rs`).
 
 ## Fixed frame (`legalSizesDyno`, idx 341 @ 0x101469de0) — CONFIRMED
 
@@ -220,7 +220,7 @@ first.
   procedure once `getBigArmies` is emulated, then re-freeze the golden-seed gates
   (map RNG consumption changes, exactly like the battle change did).
 
-## How our engine (`fast_engine.c`) compares — VALIDATED + one gap
+## How our engine (`engine/nw-core/src/board_gen.rs`) compares — VALIDATED + one gap
 
 **Deal magnitudes: our 4 templates ARE the real procedure (ground-truth
 confirmed).** For `teamSize = 6` the decoded `getBigArmies`+`splitArmies` has

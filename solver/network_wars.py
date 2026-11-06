@@ -1,14 +1,14 @@
-"""Network Wars — readable Python interface to the C engine (the source of truth).
+"""Network Wars — readable Python interface to the engine (the source of truth).
 
-The rules, board generation, and search all live in fast_engine.c; this module is
+The rules, board generation, and search all live in the engine (engine/nw-core); this module is
 a thin shim that keeps the convenient Python object interface (State/Node + the
 rule functions) the analysis tooling is written against, delegating every rule to
-the C engine via fastnw. There is no second rules implementation.
+the engine via fastnw. There is no second rules implementation.
 
-Both real-app mechanics live in the C engine: the iOS deal (every faction totals
+Both real-app mechanics live in the engine: the iOS deal (every faction totals
 20, 4 fixed templates; solver/MAP_DEAL_DECOMPILED.md) and the battle — iterated
 fair-coin attrition, decompiled bit-exact from the shipped IPA
-(solver/REAL_BATTLE_DECOMPILED.md). The browser runs this same C engine as WASM.
+(solver/REAL_BATTLE_DECOMPILED.md). The browser runs this same engine as WASM.
 """
 import fastnw
 
@@ -25,7 +25,7 @@ MAX_TURNS = 300
 M32 = 0xFFFFFFFF
 
 # The iOS deal templates (each faction's 6 strengths sum to 20), kept here for
-# reference/analysis; the authoritative copy that drives play is in fast_engine.c.
+# reference/analysis; the authoritative copy that drives play is in the engine.
 IOS_DEAL_TEMPLATES = [
     ((1, 1, 1, 5, 6, 6), 0.392),
     ((1, 1, 1, 1, 8, 8), 0.330),
@@ -35,7 +35,7 @@ IOS_DEAL_TEMPLATES = [
 
 
 def make_rng(seed):
-    """Seeded mulberry32 as a Python callable (bit-identical to the C stream), for
+    """Seeded mulberry32 as a Python callable (bit-identical to the engine's stream), for
     code that needs its own deterministic stream (e.g. policy move selection)."""
     s = seed & M32
 
@@ -65,7 +65,7 @@ class State:
     __slots__ = ('nodes', 'links', 'adj', 'mb', 'policy_rng', 'rng')
 
 
-# --- topology bookkeeping: only re-push to C when the loaded board changes -----
+# --- topology bookkeeping: only re-push to the engine when the loaded board changes -----
 _loaded = None
 
 
@@ -81,7 +81,7 @@ def _arrays(state):
 
 
 def make_game(seed):
-    """Build a fresh seeded game (board built in C, bit-identical to the old port)."""
+    """Build a fresh seeded game (board built by the engine)."""
     g = fastnw.new_game(seed & M32)
     state = State()
     state.nodes = [Node(i, int(g['x'][i]), int(g['y'][i]),

@@ -1,7 +1,7 @@
 # Search variants study (lab log) — 2026-07-01
 
 Question: can we raise C-UCT win-rate at ~equal wallclock? Three structural,
-wallclock-neutral levers were implemented in `fast_engine.c` (all opt-in,
+wallclock-neutral levers were implemented in `fast_engine.c`, since replaced by `engine/nw-core/src/search.rs` (all opt-in,
 default OFF; gates + golden seeds bit-identical when off) and benchmarked
 paired-seed vs baseline with `bench_ab.py` (per-seed JSONL, McNemar z on
 discordant pairs).

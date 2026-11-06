@@ -1,9 +1,9 @@
-// In-browser game server — the SAME C engine the solver uses, compiled to WASM and
-// run in a Web Worker so the 6000-sim C-UCT search never blocks the UI. It holds
-// game state and sequences C-engine calls, building the view/log/events/search
+// In-browser game server — the SAME engine the solver uses, compiled to WASM and
+// run in a Web Worker so the 6000-sim UCT search never blocks the UI. It holds
+// game state and sequences engine calls, building the view/log/events/search
 // JSON the page speaks. No game
 // logic lives here — board-gen, the four bots, the fair-coin-attrition battle, reinforcement
-// and the search are all in fast_engine.c (via fastnw.ts). The frontend is now fully
+// and the search are all in engine/nw-core (via fastnw.ts). The frontend is now fully
 // self-contained: no HTTP API, no Python.
 import { loadEngine, FACTIONS, FIDX, MAXN, RULES_VERSION, type Adj, type Engine, type Link } from './fastnw.ts';
 import type { AttackEvent, Faction, GameView, Move, NodeView, ReinforceEvent, Reply, SearchResult,
@@ -50,7 +50,7 @@ const GAMES: Record<string, Game> = {};
 let nextId = 0;
 const newId = () => String(++nextId);
 
-// Make the C engine's global topology match game g before any mutation (server._select).
+// Make the engine's global topology match game g before any mutation (server._select).
 function select(g: Game) { E.setTopologyCsr(g.owner.length, g.adj); }
 
 function updateWinner(g: Game) {
@@ -142,7 +142,7 @@ function doAttack(g: Game, frm: number, to: number): GameView | Reply {
 }
 
 // RED reinforce + the four bot turns, replayed move-by-move so the browser can
-// animate each step. Drives the SAME C primitives in the SAME order as the engine's
+// animate each step. Drives the SAME engine primitives in the SAME order as the engine's
 // atomic end_turn (reinforce is RNG-free; only battles advance the mb32 dice), so the
 // final board + g.mb are bit-identical to end_turn — just observable. Port of
 // server.do_end_turn.
@@ -194,7 +194,7 @@ function doEndTurn(g: Game): GameView | Reply {
   return out;
 }
 
-// The SAME C-UCT MCTS the sim/phone driver uses, for RED's current turn. Rolls out on
+// The SAME UCT MCTS the sim/phone driver uses, for RED's current turn. Rolls out on
 // the private sim stream (never g.mb, the real game dice), so calling this can't leak
 // future dice into play. Port of server.do_search.
 // Shape a root-children readout (acts/visits/q from the engine) into the ranked
@@ -274,7 +274,7 @@ async function doSearch(g: Game, sims = 2000, cPuct = 2.5, nroll = 1, simSeed = 
 // search. The certificate plays the mop-up policy itself to the end `trials` times
 // on fresh dice and passes only if at most `maxLosses` of them lose, so the answer
 // is about the policy the button runs rather than about how the SEARCH would play
-// (see fast_engine.c: the old "every root move wins >99.95%" gate authorized
+// (see engine/nw-core/src/policy.rs: the old "every root move wins >99.95%" gate authorized
 // mop-ups that lost 5.3% of the time). Cheap enough to run every move: a trial
 // costs about one rollout, so 1000 of them ~ a 1000-sim search.
 function doSweepCheck(g: Game, trials: number, maxLosses: number): SweepCheck {

@@ -1,17 +1,19 @@
-"""Thin Python client over fast_engine.so — the C engine is the single source of
-truth for all game rules, board generation, and search. This module just marshals
+"""Thin Python client over the native build of the Rust engine (engine/nw-abi, built
+by engine/build.sh) — the engine is the single source of truth for all game rules,
+board generation, and search. This module just marshals
 numpy int32 arrays in and out; it implements no rules itself.
 
 Board state is (owner, strength) int32 arrays in node-id order. owner encoding:
-red=0, green=1, yellow=2, blue=3, purple=4 (= FACTIONS index). The C functions
-mutate the arrays in place. Topology (adjacency) is global in C: new_game() builds
+red=0, green=1, yellow=2, blue=3, purple=4 (= FACTIONS index). The exported functions
+mutate the arrays in place. Topology (adjacency) is global in the engine: new_game() builds
 it, or set_topology()/set_topology_csr() inject one for an externally-built board.
 
-Two RNG streams in C: use_mb32(seed) = the real seeded mulberry32 game stream
+Two RNG streams in the engine: use_mb32(seed) = the real seeded mulberry32 game stream
 (new_game seeds it); use_sim(seed) = the private seed-free stream for search.
 """
 import ctypes
 import os
+import sys
 
 import numpy as np
 
@@ -19,9 +21,13 @@ FACTIONS = ['red', 'green', 'yellow', 'blue', 'purple']
 FIDX = {f: i for i, f in enumerate(FACTIONS)}
 MAXN = 64
 
-_SO = os.environ.get('NW_ENGINE_SO') or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), 'fast_engine.so')
-_lib = ctypes.CDLL(_SO)
+# NW_ENGINE_SO selects another build (benches compare two).
+ENGINE_SO = os.environ.get('NW_ENGINE_SO') or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', 'engine', 'target', 'release',
+    'libnw_engine.dylib' if sys.platform == 'darwin' else 'libnw_engine.so')
+if not os.path.exists(ENGINE_SO):
+    sys.exit(f'{ENGINE_SO} missing: build it with engine/build.sh')
+_lib = ctypes.CDLL(ENGINE_SO)
 
 _i32p = ctypes.POINTER(ctypes.c_int)
 _dblp = ctypes.POINTER(ctypes.c_double)
@@ -118,12 +124,12 @@ def set_topology_csr(n, adj):
 
 
 def set_topology(state):
-    """Push the adjacency of a Python state (state.adj) into the C engine."""
+    """Push the adjacency of a Python state (state.adj) into the engine."""
     return set_topology_csr(len(state.nodes), state.adj)
 
 
 def get_adj(n):
-    """Read the current C adjacency back as a list-of-lists of length n."""
+    """Read the current engine adjacency back as a list-of-lists of length n."""
     off = np.zeros(n + 1, dtype=np.int32)
     lst = np.zeros(MAXN * 8, dtype=np.int32)
     _lib.get_adj(_p(off), _p(lst))
@@ -138,7 +144,7 @@ def get_links():
 
 # ---- board generation -------------------------------------------------------
 def new_game(seed, rules=2):
-    """Build a fresh seeded board in C (also sets topology + seeds mb32). Returns a
+    """Build a fresh seeded board in the engine (also sets topology + seeds mb32). Returns a
     dict: owner, strength (np int32 len N), x, y (np int32 len N), adj (list-of-lists),
     links (list of [a,b]), n, mb (mulberry32 stream position after the deal)."""
     owner = np.zeros(MAXN, dtype=np.int32)
@@ -158,13 +164,13 @@ def new_game(seed, rules=2):
 
 # ---- rng --------------------------------------------------------------------
 def use_mb32(seed):
-    """Switch C to the real seeded mulberry32 stream (real-game dice)."""
+    """Switch the engine to the real seeded mulberry32 stream (real-game dice)."""
     _lib.set_rng_mb32(seed & 0xFFFFFFFF)
     _lib.use_mb32_rng()
 
 
 def use_sim(seed):
-    """Switch C to the private seed-free splitmix64 stream (search dice)."""
+    """Switch the engine to the private seed-free splitmix64 stream (search dice)."""
     _lib.set_sim_seed(seed)
     _lib.use_sim_rng()
 
@@ -272,7 +278,7 @@ def rollout(owner, strength, turns):
 # ---- sweep-up (the web UI's mop-up policy + its certificate) -----------------
 def sweep_best_move(owner, strength):
     """The mop-up rule the browser's sweep-up plays: (frm, to), or None to end the
-    turn. Same C function the certificate below plays out, so the two can't drift."""
+    turn. Same engine function the certificate below plays out, so the two can't drift."""
     mv = _lib.sweep_best_move(_p(owner), _p(strength))
     return None if mv < 0 else (mv >> 8, mv & 0xFF)
 
@@ -294,7 +300,7 @@ _out_q = np.zeros(4096, dtype=np.float64)
 
 def uct_search(owner, strength, turns, sims, c_puct=2.5, nroll=1, return_q=False,
                max_sims=None):
-    """Run the C UCT search. Returns (acts, visits) for the root's legal children
+    """Run the UCT search. Returns (acts, visits) for the root's legal children
     (acts are frm<<8|to, or -1 for END_TURN). With return_q, also returns per-child
     Q (the backed-up RED win-prob estimate = winexp).
 
@@ -331,7 +337,7 @@ def board_arrays(state):
 
 
 def write_back(state, owner, strength):
-    """Copy C arrays back into a Python state's Node objects."""
+    """Copy the engine's arrays back into a Python state's Node objects."""
     for nd in state.nodes:
         nd.owner = FACTIONS[owner[nd.id]]
         nd.strength = int(strength[nd.id])

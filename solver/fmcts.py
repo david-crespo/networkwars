@@ -1,12 +1,11 @@
-"""Fast MCTS driver: plan with the C UCT search, play the real seeded game.
+"""Fast MCTS driver: plan with the engine's UCT search, play the real seeded game.
 
-Each RED decision converts the live Python state to int arrays and calls the C
+Each RED decision converts the live Python state to int arrays and calls the
 open-loop UCT search (sim dice from a private seed-free rng). The chosen action is
 applied to the REAL Python state with the REAL seeded rng, so the game outcome is
 the true one — no seed exploitation (search never sees the game seed).
 
-Build the engine first:
-    cc -O3 -ffast-math -shared -fPIC fast_engine.c -o fast_engine.so
+Build the engine first: engine/build.sh
 Best config (baked into the engine): ranked C1 rollout, c_puct=2.5, sims=1600-3200.
     uv run python fmcts.py --games 120 --sims 3200 --c-puct 2.5
 """
@@ -33,7 +32,7 @@ def play_game(seed, sims, c_puct=2.5, nroll=1, sim_seed=0x12345678,
         w = check_winner(state)
         if w is not None or counts(state)[HUMAN] == 0:
             break
-        # Real game mutations switch the C engine to the real mb32 dice stream.
+        # Real game mutations switch the engine to the real mb32 dice stream.
         # Reset before every search so offline eval matches the live nwmove_fast
         # subprocess path and never plans with the real game's future dice.
         fastnw.use_sim(sim_seed)

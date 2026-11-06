@@ -1,6 +1,6 @@
 # Game-rules audit — 2026-09-07
 
-Compared the local iOS artifact with `fast_engine.c`, its Python/JavaScript
+Compared the local iOS artifact with `fast_engine.c` (since replaced by the Rust engine in `engine/nw-core`), its Python/JavaScript
 bindings, and the browser's game/replay routes. Visuals, random-number-generator
 identity, and search tuning were outside this audit. Existing concurrent search
 and grading edits were preserved.
@@ -119,7 +119,8 @@ Validation completed:
 - 3,000 original ARM64 battles versus the current C implementation, fed identical
   hit/miss sequences: exact ownership, both survivor counts, and consumed coin
   counts matched. Included initially zero-army defenders.
-- `rules_gate.c`, with AddressSanitizer and UndefinedBehaviorSanitizer: 10,000
+- `rules_gate.c`, with AddressSanitizer and UndefinedBehaviorSanitizer (since ported to
+  `engine/nw-core/tests/rules.rs` and `engine/nw-abi/tests/abi.rs`): 10,000
   openings, required strength-specific groupings, reinforcement allocation and
   fallback, bot chains, human/bot attack differences, illegal actions, terminal
   guards, and zero-army capture.

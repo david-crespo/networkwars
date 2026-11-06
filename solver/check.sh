@@ -3,16 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-bash solver/build_native.sh
 bash engine/build.sh
 (cd engine && cargo nextest run --release)
-
-check_dir=$(mktemp -d "${TMPDIR:-/tmp}/nw-check.XXXXXX")
-trap 'rm -rf "$check_dir"' EXIT
-for gate in math rules; do
-  cc -O2 -Wall -Wextra "solver/${gate}_gate.c" -lm -o "$check_dir/$gate"
-  "$check_dir/$gate"
-done
 
 for gate in validate_fast validate_wasm legacy_rules_gate; do
   uv run --project solver python "solver/$gate.py"

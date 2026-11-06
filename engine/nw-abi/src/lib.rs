@@ -1,6 +1,6 @@
-//! The C ABI of `solver/fast_engine.c`, exactly: same names, same signatures,
-//! one engine per process (or per WASM instance). Clients (`fastnw.py`,
-//! `src/fastnw.js`) load this in place of the C build unchanged.
+//! The C ABI over one global engine per process (or per WASM instance). Clients
+//! (`fastnw.py`, `src/fastnw.ts`) load it; the names and signatures are those of
+//! the C engine this began as (since removed), so the clients never changed.
 //!
 //! Every function copies the caller's `owner`/`strength` arrays (length N of
 //! the current topology) in, runs the core, and copies results back.

@@ -47,7 +47,7 @@ readout grading mode declares out of scope.
 
 ## The fix: certify the policy you are about to run
 
-`sweep_best_move` / `sweep_certify` in `fast_engine.c`. The certificate **plays the
+`sweep_best_move` / `sweep_certify` in `engine/nw-core/src/policy.rs`. The certificate **plays the
 mop-up policy itself to the end N times on fresh dice** and passes only if at most
 `max_losses` of them lose. It answers the actual question — *"if I press this, do I
 win?"* — and costs about one rollout per trial, so it is ~100× cheaper than the
@@ -122,7 +122,7 @@ stopped — this is no longer a sure win. Your move."*
 
 ## Not fixed (open)
 
-`GRADE_MIN_HALF = 16` in `fast_engine.c` lets grading mode report a second-half Q off
+`GRADE_MIN_HALF = 16` in `engine/nw-core/src/search.rs` lets grading mode report a second-half Q off
 16 rollouts, and the snapshot is taken at `max_sims/2` regardless of when the search
 actually stops. Nothing depends on it now that the sweep doesn't (the review filters
 decided positions, and live positions run the full 16k–24k budget), but it is a trap

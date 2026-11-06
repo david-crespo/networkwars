@@ -1,6 +1,6 @@
 """Compare native search builds with exact root-stat parity and paired timings.
 
-  python solver/search_bench.py /path/before.so solver/fast_engine.so
+  python solver/search_bench.py /path/before.dylib engine/target/release/libnw_engine.dylib
 
 Uses identical opening/midgame positions, private dice, fixed/adaptive budgets,
 play/grading modes, and alternating execution order. No strength tradeoff is
