@@ -366,6 +366,8 @@ board.onReplay = (faction, nodes) => renderHeader(faction, nodes);
 
 let state = null;            // authoritative view of YOUR game
 let inputLocked = false;
+// Read-only hook for the e2e tests (e2e/), which need node positions on the canvas.
+window.__nw = { board, state: () => state, locked: () => inputLocked, model: () => M };
 
 // ---- diagnostics: never shown in the UI, only written into the data export, so a
 // device-specific failure (e.g. the AI stalling on a phone but not on a desktop)

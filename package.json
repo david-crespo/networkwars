@@ -3,9 +3,11 @@
   "scripts": {
     "build": "python3 solver/build_site.py",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "wrangler": "^4.158.0"
   },
   "allowScripts": {
