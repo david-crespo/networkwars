@@ -199,19 +199,50 @@ canvas.pg { display:block; width:100%; height:112px; background:rgba(255,255,255
 #sklegend[data-state="better"] b { color:var(--green); }
 #sklegend[data-state="worse"] b { color:#ff9f45; }
 
-/* inspector: the board at the selected move. Square-ish and as wide as the panel —
-   the board is the point of this view, so it gets the room. */
-#ibwrap { position:relative; height:min(360px, 78vw); background:rgba(0,0,0,.28);
+/* inspector: one screen, no scrolling. The board takes whatever height the tabs,
+   the step bar and the chart leave; the step bar sits low, under the thumb. */
+#ov-seed .p-body { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; overflow:hidden;
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom)); }
+#ov-seed .tabs { flex:0 0 auto; margin:10px 0 8px; }
+#ibwrap { position:relative; flex:1 1 auto; min-height:180px; background:rgba(0,0,0,.28);
   border-radius:10px; margin:0 0 8px; overflow:hidden; }
-#ib { width:100%; height:100%; display:block; }
-#ibcap { display:flex; align-items:center; justify-content:space-between; gap:8px;
-  margin:0 0 12px; font-size:12px; color:#8fcfb8; }
-#ibcap .nav { display:flex; gap:6px; align-items:center; }
+#ib { position:absolute; inset:0; width:100%; height:100%; display:block; }
+#ibcap { display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  margin:0 4px 8px; font-size:13px; color:#8fcfb8; min-height:18px; flex:0 0 auto; }
+#ibinfo b { color:#e9f7f0; }
+#ibgrade { font-weight:700; color:#cfe; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#ibgrade i.dash { display:inline-block; width:18px; height:0; vertical-align:middle;
+  border-top:2.5px dashed #effff8; margin-left:2px; }
+#ibinfo .pill { font-size:11px; font-weight:700; padding:1px 7px; border-radius:9px;
+  border:1px solid rgba(233,247,240,.35); color:#e9f7f0; margin-left:2px; }
+#ibgrade b { color:#e9f7f0; }
+#ibgrade .pend { color:#5f9e8e; font-weight:600; }
+#ibgrade .retry { color:var(--teal); cursor:pointer; }
+#ibnav { display:flex; gap:10px; align-items:center; flex:0 0 auto; margin:0; }
 /* generous hit targets: these get tapped repeatedly to walk a game */
-#ibcap .act { font-size:24px; line-height:1; padding:4px 12px; border-radius:8px;
-  background:rgba(95,208,214,.10); border:1px solid rgba(95,208,214,.28); }
-#ibcap .act:active { background:rgba(95,208,214,.24); }
-#ibinfo { flex:1; min-width:0; }
+#ibnav .act { flex:0 0 64px; height:52px; display:flex; align-items:center;
+  justify-content:center; font-size:34px; line-height:1; padding-bottom:4px; border-radius:12px;
+  background:rgba(95,208,214,.10); border:1px solid rgba(95,208,214,.28); color:var(--teal);
+  box-sizing:border-box; }
+#ibnav .act:active { background:rgba(95,208,214,.24); }
+/* the move strip: one bar per move, a gap after each end turn; tap or drag to jump.
+   On your moves a bar hangs down by the win% it gave up (--lost, 0..1 of 30 points). */
+#sd-strip { flex:1; min-width:0; height:52px; display:flex; gap:2px; align-items:flex-start;
+  padding-top:4px; box-sizing:border-box; touch-action:none; cursor:pointer;
+  border-top:1px solid rgba(143,207,184,.25); }
+#sd-strip i { flex:1 1 0; min-width:1px; border-radius:2px; background:#8fcfb8;
+  height:calc(5px + var(--lost, 0) * 37px); opacity:.75; }
+#sd-strip i.end { margin-right:4px; }
+#sd-strip i.ai { height:5px; opacity:.45; }
+#sd-strip i.pend { height:5px; opacity:.2; }
+#sd-strip i.dead { height:5px; opacity:.3; }
+#sd-strip i.cur { opacity:1; background:#e9f7f0; min-height:10px;
+  box-shadow:0 0 0 2px var(--teal), 0 0 10px rgba(95,208,214,.6); }
+#sd-strip .spin { flex:1; padding:0; font-size:12px; }
+#ov-seed canvas.pg { flex:0 0 auto; height:76px; }
+#ov-seed #glegend { margin:5px 0 0; flex:0 0 auto; }
+#ov-seed #glegend i { background:#8fcfb8; }
+#ov-seed #glegend i.dashq { background:repeating-linear-gradient(90deg, #8fcfb8 0 2px, transparent 2px 5px); }
 
 .tabs { display:flex; gap:6px; margin:0 0 10px; }
 .tabs > div { flex:1; text-align:center; padding:8px 0; border-radius:9px; font-size:13px;
@@ -220,28 +251,4 @@ canvas.pg { display:block; width:100%; height:112px; background:rgba(255,255,255
 .tabs > div.sel { color:#04100c; background:var(--teal); border-color:var(--teal); }
 .tabs > div.sel.ai { background:var(--yellow); border-color:var(--yellow); }
 
-.mv { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px;
-  font-size:13px; margin-bottom:3px; background:rgba(255,255,255,.03); cursor:pointer; }
-.mv:active { background:rgba(255,255,255,.12); }
-.mv.cur { box-shadow:inset 0 0 0 1.5px var(--teal); }
-.mv .no { width:26px; font-size:11px; color:#5f9e8e; font-variant-numeric:tabular-nums; }
-.mv .lbl { flex:1; color:#cfe; }
-.pip { display:flex; align-items:center; justify-content:center; min-width:18px;
-  font-weight:800; font-size:15px; flex:0 0 auto; }
-.pip.red{color:var(--red)} .pip.green{color:var(--green)} .pip.yellow{color:var(--yellow)}
-.pip.blue{color:var(--blue)} .pip.purple{color:var(--purple)}
-.arrow { color:#6fae9e; font-weight:700; }
-.mv .gap { font-weight:800; min-width:46px; text-align:right; font-variant-numeric:tabular-nums; }
-.mv .qq { min-width:44px; text-align:right; font-size:11px; color:#7fb6a6;
-  font-variant-numeric:tabular-nums; }
-.mv.t0 .gap { color:#6fae9e; }
-.mv.t1 { background:rgba(245,197,66,.09); }  .mv.t1 .gap { color:var(--yellow); }
-.mv.t2 { background:rgba(255,159,69,.11); }  .mv.t2 .gap { color:#ff9f45; }
-.mv.t3 { background:rgba(255,77,94,.13); }   .mv.t3 .gap { color:var(--red); }
-.mv.dead { opacity:.4; } .mv.dead .gap { color:#5f9e8e; font-weight:600; font-size:11px; }
-.mvbest { font-size:11px; color:#7fb6a6; display:flex; align-items:center; gap:6px;
-  padding:1px 8px 6px 34px; }
-#rvbar { height:5px; border-radius:3px; background:rgba(255,255,255,.08);
-  overflow:hidden; margin:0 0 10px; display:flex; }
-#rvbar > i { display:block; height:100%; }
 .spin { color:#7fb6a6; font-style:italic; font-size:13px; padding:14px 0; text-align:center; }

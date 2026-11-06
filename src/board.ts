@@ -74,6 +74,7 @@ export function nodeHeight(strength: number, r: number) {
   return strength > 0 ? r * LIFT * Math.min(1, Math.log2(1 + strength) / Math.log2(25)) : 0;
 }
 const LIFT = .42, MAX_R = 26;
+const HOVER = '#ffd36b', REVIEW = '#effff8';
 
 // Paint a tiny starting-board thumbnail (faction-colored dots laid out by x,y).
 // Used by the per-seed scoreboard rows and the AI-progress badge.
@@ -104,6 +105,9 @@ export class Board {
   selected: number | null
   targetsFor: Map<number, Set<number>>
   hoverMove: Partial<MoveRef> | null
+  bestMove: Partial<MoveRef> | null
+  reviewColors: boolean
+  pad: number
   dragTo: Point | null
   topInset: number
   overrides: Map<number, { strength: number; owner?: Faction }>
@@ -132,6 +136,10 @@ export class Board {
     this.selected = null;           // selected red node id
     this.targetsFor = new Map();    // from -> Set(to), indexed from view.legalMoves
     this.hoverMove = null;          // {from,to} previewed on the grid
+    this.bestMove = null;           // {from,to} a review's preferred move
+    this.reviewColors = false;      // a review: moves in white, no faction hues (the
+                                    // played move solid, the best dashed), not the play preview's gold
+    this.pad = 38;                  // px kept clear around the board
     this.dragTo = null;             // {x,y} canvas pt: a drag-to-attack in progress from `selected`
     this.topInset = 0;             // px at the top the layout must keep clear
                                     // (e.g. the AI-progress badge overlays the canvas)
@@ -161,6 +169,7 @@ export class Board {
     this.state = v;
     this.selected = null;
     this.hoverMove = null;
+    this.bestMove = null;
     this.dragTo = null;
     this.indexMoves();
     this.positions = v.nodes.map(n => this.nodePos(n));
@@ -185,7 +194,7 @@ export class Board {
     if (!this.state) return;
     const maxX = Math.max(...this.state.nodes.map(n => n.x)) || 1;
     const maxY = Math.max(...this.state.nodes.map(n => n.y)) || 1;
-    const pad = 38;
+    const pad = this.pad;
     // topInset shrinks the fit only when the centered board would reach under it;
     // with vertical slack the max() leaves the board dead-centered as before.
     // The inset protects the whole node (rim + halo + the tallest lift), not just its center.
@@ -375,7 +384,9 @@ export class Board {
     const nodes = this.animBoard || state.nodes;
     const pos = this.positions;
     if (pos.length !== nodes.length) return;
-    const { battle, selected, hoverMove, targetsFor } = this;
+    const { battle, selected, hoverMove, bestMove, targetsFor } = this;
+    const on = (m: Partial<MoveRef> | null, a: number, c: number) =>
+      !!m && ((a === m.from && c === m.to) || (a === m.to && c === m.from));
 
     // links
     for (const [a, c] of state.links) {
@@ -383,14 +394,16 @@ export class Board {
       const selHot = selected !== null && (
            (a===selected && targetsFor.get(selected)?.has(c))
         || (c===selected && targetsFor.get(selected)?.has(a)));
-      const isHover = hoverMove && ((a===hoverMove.from && c===hoverMove.to) || (a===hoverMove.to && c===hoverMove.from));
+      const isHover = on(hoverMove, a, c), isBest = on(bestMove, a, c);
       ctx.beginPath();
       ctx.moveTo(pos[a].x, pos[a].y); ctx.lineTo(pos[c].x, pos[c].y);
       // an active fight draws a bright line in the ATTACKER's color (from-node owner)
       if (battle && inBattle) { const ac = COLORS[nodes[battle.from].owner] || COLORS.red;
         ctx.strokeStyle = ac; ctx.lineWidth = 4; ctx.setLineDash([]); ctx.shadowColor = ac; ctx.shadowBlur = 12; }
       else if (selHot) { ctx.strokeStyle = COLORS.red; ctx.lineWidth = 4; ctx.setLineDash([]); ctx.shadowColor = COLORS.red; ctx.shadowBlur = 10; }
-      else if (isHover) { ctx.strokeStyle = 'rgba(255,211,107,.9)'; ctx.lineWidth = 3.5; ctx.setLineDash([]); ctx.shadowColor = '#ffd36b'; ctx.shadowBlur = 12; }
+      else if (isHover) { const col = this.reviewColors ? REVIEW : HOVER;
+        ctx.strokeStyle = col; ctx.lineWidth = 3.5; ctx.setLineDash([]); ctx.shadowColor = col; ctx.shadowBlur = 12; }
+      else if (isBest) { ctx.strokeStyle = REVIEW; ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]); ctx.shadowColor = REVIEW; ctx.shadowBlur = 8; }
       else { ctx.strokeStyle = 'rgba(70,220,165,.65)'; ctx.lineWidth = 0.85; ctx.setLineDash([1.5,2.5]); ctx.shadowBlur = 0; }
       ctx.stroke();
       if (inBattle) { ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(234,255,246,.4)'; ctx.lineWidth = 1; ctx.stroke(); }
@@ -455,10 +468,14 @@ export class Board {
         (battle.elapsed % TIMING.arrow) / TIMING.arrow, hf, ht, this.light);
     }
 
+    // a review's preferred move, in green beside the played one
+    if (bestMove?.from != null && bestMove.to != null && pos[bestMove.from] && pos[bestMove.to])
+      this._drawArrow(pos[bestMove.from], pos[bestMove.to], REVIEW, null,
+        heights[bestMove.from], heights[bestMove.to], .7);
     // hovered suggestion: a directional arrow along the edge (drawn on top of nodes)
     if (hoverMove && hoverMove.from != null && hoverMove.to != null) {
       const pf = pos[hoverMove.from], pt = pos[hoverMove.to];
-      if (pf && pt) this._drawArrow(pf, pt, '#ffd36b', null,
+      if (pf && pt) this._drawArrow(pf, pt, this.reviewColors ? REVIEW : HOVER, null,
         heights[hoverMove.from], heights[hoverMove.to]);
     }
     // drag-to-attack in progress: a free line from the selected node to the pointer

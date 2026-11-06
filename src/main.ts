@@ -26,14 +26,14 @@
 // search come from fast_engine.c via engine.worker.ts. This file is bookkeeping and
 // presentation only.
 // ============================================================================
-import { Board, ORDER, SPEEDS, sleep, dirArrow, drawThumb } from './board.ts';
+import { Board, ORDER, SPEEDS, sleep, drawThumb } from './board.ts';
 import { createReviewer, tierOf, invalidateStaleReview } from './review.ts';
 import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.ts';
 import { aiWinCurve, youWinCurve, type CurvePoint } from './projections.ts';
 import { createReplayInspector } from './replay.ts';
 import { skillHistory, skillComparison, skillTrend, type SkillGame } from './skill.ts';
 import engineWorkerUrl from './engine.worker.ts?worker&url';
-import type { Api, Faction, GameView, HistPoint, Label, Move, NodeView, Reply, Round, SearchResult,
+import type { Api, Faction, GameView, HistPoint, Label, Move, NodeView, Pip, Reply, Round, SearchResult,
   Side, SweepCheck, Tally } from './types.ts';
 
 // The AI plays at the strength the app's autoplay/live driver uses: 6000-sim floor,
@@ -935,7 +935,8 @@ $('res-reset').onclick = () => {
 // Node count (not total strength) is the plotted power: it's the win condition (24).
 const YOU_COL = '#5fd0d6', AI_COL = '#f5c542';
 let pgHit: { W: number; padL: number; padR: number; maxT: number } | null = null;   // for tap-to-scrub
-function drawPower(cv: HTMLCanvasElement, r: Round) {
+// cursor: the turn of the move on the inspector's board, in its side's color.
+function drawPower(cv: HTMLCanvasElement, r: Round, cursor: { t: number; col: string } | null) {
   const you = r.you.hist, ai = r.ai.hist;
   const dpr = window.devicePixelRatio || 1;
   const rect = cv.getBoundingClientRect();
@@ -995,6 +996,11 @@ function drawPower(cv: HTMLCanvasElement, r: Round) {
       g.beginPath(); g.arc(xOf(last.t), yQ(last.q), 2, 0, Math.PI * 2); g.fill();
     }
   };
+  if (cursor) {
+    const x = Math.round(xOf(cursor.t)) + .5;
+    g.strokeStyle = cursor.col; g.globalAlpha = .55; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); g.globalAlpha = 1;
+  }
   qseries(aiWinCurve(r.ai.moves), AI_COL);
   qseries(youWinCurve(r.you.review, r.you.moves), YOU_COL);
   series(ai, AI_COL);          // AI first so your line reads on top
@@ -1002,7 +1008,10 @@ function drawPower(cv: HTMLCanvasElement, r: Round) {
 }
 
 function redrawSeedGraphs(r: Round) {
-  if ($('pg')) drawPower($<HTMLCanvasElement>('pg'), r);
+  if (!$('pg')) return;
+  const side = sdTab === 'you' ? r.you : r.ai;
+  drawPower($<HTMLCanvasElement>('pg'), r, sdSel < 0 ? null
+    : { t: moveTurns(side.moves)[sdSel], col: sdTab === 'you' ? YOU_COL : AI_COL });
 }
 
 // Tap the seed graph → scrub the inspector to that turn: x maps back to a turn,
@@ -1027,38 +1036,22 @@ function pgTap(ev: MouseEvent) {
 // ============================ per-seed detail ============================
 let sdIdx = 0, sdTab: 'you' | 'ai' = 'you', sdSel = -1, ib: Board | null = null, sdFromResults = false;
 
-function mvLabel(l: Label | 'end' | null | undefined) {
-  if (l === 'end' || !l) return '<span class="lbl">End turn</span>';
-  return `<span class="pip ${l.f.owner}">${l.f.strength}</span>`
-       + `<span class="arrow">${dirArrow(l.f, l.t)}</span>`
-       + `<span class="pip ${l.t.owner}">${l.t.strength}</span><span class="lbl"></span>`;
-}
-
 const resTag = (x: Side['result']) => `<span class="tag ${x || 'none'}">${x === 'won' ? 'W' : x === 'lost' ? 'L' : '—'}</span>`;
 // Only a finished game gets a final score — mid-game the AI's node count is not a
 // result and must not be dressed up as one.
-const sdFin = (side: Side) => !side.hist.length ? 'queued'
-  : !side.result ? 'still playing…'
-  : `${side.red} node${side.red === 1 ? '' : 's'} · ${side.turns} turn${side.turns === 1 ? '' : 's'}`;
-const sdTitle = (i: number, r: Round) => `Seed ${i + 1} · You ${resTag(r.you.result)} AI ${resTag(r.ai.result)}`;
-const sdLegend = (r: Round) => `
-  <span><i style="background:${YOU_COL}"></i>You — ${sdFin(r.you)}</span>
-  <span><i style="background:${AI_COL}"></i>AI — ${sdFin(r.ai)}</span>
-  <span><i class="dashq"></i>dotted: win%</span>`;
+// The tabs double as the chart's key (their colors) and carry each side's result.
+const sdResult = (side: Side) => !side.hist.length ? 'queued' : !side.result ? 'playing…'
+  : `${side.result} · ${side.turns} turn${side.turns === 1 ? '' : 's'}`;
+const SD_LEGEND = '<span><i></i>red nodes</span><span><i class="dashq"></i>win%</span>';
 
 // The AI plays concurrently, so an analysis auto-opened after your loss usually shows
 // its half unfinished. Fill it in the moment it lands rather than leaving a stale
-// "still playing…" / "AI moves (0)" panel that never updates. Deliberately does NOT
+// "playing…" panel with an empty strip that never updates. Deliberately does NOT
 // re-run openSeed: that would reset your tab, selection and re-trigger scoring.
 function refreshSeedPanel(i: number) {
   if (!$('ov-seed').classList.contains('show') || sdIdx !== i) return;
-  const r = M.rounds[i];
-  $('sd-title').innerHTML = sdTitle(i, r);
-  $('glegend').innerHTML = sdLegend(r);
-  redrawSeedGraphs(r);
-  const tab = document.querySelector('#sd-tabs > div[data-tab="ai"]');
-  if (tab) tab.textContent = `AI moves (${r.ai.moves.length})`;
-  if (sdTab === 'ai') { renderList(); select(0); }     // its list was empty before
+  if (sdTab === 'ai' && sdSel < 0) select(0);          // its strip was empty before
+  else paintSel();
 }
 
 function openSeed(i: number, opts: { fromResults?: boolean; sel?: number } = {}) {
@@ -1066,40 +1059,38 @@ function openSeed(i: number, opts: { fromResults?: boolean; sel?: number } = {})
   if (r.trim) { if (opts.fromResults) showResults(); return; }   // nothing to replay
   sdIdx = i; sdSel = -1;
   sdFromResults = !!opts.fromResults;
-  $('sd-title').innerHTML = sdTitle(i, r);
+  // The AI's game is the one to learn from, so it opens first; a tap on one of your
+  // decisions (the tally's graph) or an AI still on its first move opens yours.
+  sdTab = opts.sel == null && r.ai.moves.length ? 'ai' : 'you';
+  $('sd-title').textContent = `Seed ${i + 1}`;
+  // The board on top, the controls at the bottom under the thumb.
   $('sd-body').innerHTML = `
-    <h3>Red nodes &amp; win% over the game</h3>
-    <canvas class="pg" id="pg"></canvas>
-    <div id="glegend">${sdLegend(r)}</div>
-    <h3>Step through the moves</h3>
     <div id="ibwrap"><canvas id="ib"></canvas></div>
-    <div id="ibcap">
-      <span id="ibinfo"></span>
-      <span class="nav"><span class="act" id="ib-prev">‹</span><span class="act" id="ib-next">›</span></span>
-    </div>
+    <div id="ibcap"><span id="ibinfo"></span><span id="ibgrade"></span></div>
+    <canvas class="pg" id="pg"></canvas>
+    <div id="glegend">${SD_LEGEND}</div>
     <div class="tabs" id="sd-tabs">
-      <div data-tab="you" class="sel">Your moves (${r.you.moves.length})</div>
-      <div data-tab="ai" class="ai">AI moves (${r.ai.moves.length})</div>
+      <div data-tab="ai" class="ai"></div>
+      <div data-tab="you"></div>
     </div>
-    <div id="sd-list"></div>`;
+    <div id="ibnav">
+      <div class="act" id="ib-prev" aria-label="Previous move">‹</div>
+      <div id="sd-strip"></div>
+      <div class="act" id="ib-next" aria-label="Next move">›</div>
+    </div>`;
   // Show BEFORE painting: every canvas here sizes itself from getBoundingClientRect,
   // which is 0x0 while the overlay is still display:none.
   $('ov-seed').classList.add('show');
   ib = new Board($<HTMLCanvasElement>('ib'), $('ibwrap'));
-  redrawSeedGraphs(r);
+  ib.pad = 16;
+  ib.reviewColors = true;
   $('pg').onclick = pgTap;
   document.querySelectorAll<HTMLElement>('#sd-tabs > div').forEach(el => {
-    el.onclick = () => {
-      sdTab = el.dataset.tab === 'ai' ? 'ai' : 'you'; sdSel = -1;
-      document.querySelectorAll('#sd-tabs > div').forEach(d => d.classList.toggle('sel', d === el));
-      renderList();
-      select(0);                          // never leave the inspector blank
-    };
+    el.onclick = () => { sdTab = el.dataset.tab === 'ai' ? 'ai' : 'you'; sdSel = -1; select(0); };
   });
   $('ib-prev').onclick = () => step(-1);
   $('ib-next').onclick = () => step(1);
-  sdTab = 'you';
-  renderList();
+  stripScrub($('sd-strip'));
   select(opts.sel ?? 0);       // a graph tap lands directly on its decision
   // Scoring IS the analysis — start it the moment the panel opens, no button.
   if ((!r.you.review || r.you.review.partial) && r.you.moves.length) runReview(i);
@@ -1109,101 +1100,95 @@ function openSeed(i: number, opts: { fromResults?: boolean; sel?: number } = {})
 // (auto-opened after a loss) straight back to the seed you're now playing.
 $('sd-close').onclick = () => {
   ++inspectSeq;
-  clearTimeout(hoverTimer);
   $('ov-seed').classList.remove('show');
   if (sdFromResults) showResults();
 };
+addEventListener('keydown', e => {
+  if (!$('ov-seed').classList.contains('show')) return;
+  if (e.key === 'ArrowLeft') step(-1);
+  else if (e.key === 'ArrowRight') step(1);
+});
 
-function renderList() {
-  const r = M.rounds[sdIdx];
-  const side = sdTab === 'you' ? r.you : r.ai;
-  const list = $('sd-list');
-  list.innerHTML = '';
+const sdSide = () => sdTab === 'you' ? M.rounds[sdIdx].you : M.rounds[sdIdx].ai;
+
+// Everything about the selection except the board: tabs, the move strip, the chart
+// cursor and the grade. Cheap, so review progress repaints it freely.
+function paintSel() {
+  const r = M.rounds[sdIdx], side = sdSide();
+  for (const el of document.querySelectorAll<HTMLElement>('#sd-tabs > div')) {
+    const you = el.dataset.tab === 'you';
+    el.textContent = `${you ? 'You' : 'AI'} · ${sdResult(you ? r.you : r.ai)}`;
+    el.classList.toggle('sel', (sdTab === 'you') === you);
+  }
+  // One bar per move, with a gap after each end turn so the turns read as groups.
+  // On your moves a bar hangs down by the win% the review says it gave up, filling
+  // in as scoring lands. No hues: red/yellow/green are factions on the board.
+  const rv = sdTab === 'you' ? side.review : null;
+  $('sd-strip').innerHTML = side.moves.map((mv, k) => {
+    const sm = rv?.moves[k];
+    const cls = sdTab === 'ai' ? 'ai' : !sm ? 'pend' : sm.dead ? 'dead' : '';
+    const lost = sm && !sm.dead && sm.gap != null ? Math.min(1, sm.gap / 30) : 0;
+    return `<i class="${cls}${mv.e ? ' end' : ''}${k === sdSel ? ' cur' : ''}"`
+      + ` style="--lost:${lost.toFixed(2)}"></i>`;
+  }).join('');
   if (!side.moves.length) {
-    list.innerHTML = `<div class="spin">${sdTab === 'ai'
-      ? 'The AI hasn\'t finished this seed yet.' : 'No moves recorded.'}</div>`;
+    $('sd-strip').innerHTML = `<span class="spin">${sdTab === 'ai'
+      ? 'The AI hasn\'t finished this seed yet.' : 'No moves recorded.'}</span>`;
+  }
+  redrawSeedGraphs(r);
+  paintGrade();
+}
+
+// Your move's grade beside the caption, with the search's preferred move drawn on
+// the board in green. The AI's moves carry the win% its own search reported.
+function paintGrade() {
+  const el = $('ibgrade'), side = sdSide(), mv = side.moves[sdSel];
+  el.onclick = null;
+  if (ib) ib.bestMove = null;
+  if (!mv) { el.innerHTML = ''; return; }
+  if (sdTab === 'ai') { el.innerHTML = mv.q != null ? `${Math.round(mv.q * 100)}% win` : ''; return; }
+  const sm = side.review?.moves[sdSel];
+  if (!sm) {
+    if (reviewErr[sdIdx] && !reviewing.has(sdIdx)) {
+      el.innerHTML = '<span class="retry">Scoring failed · retry</span>';
+      el.onclick = () => runReview(sdIdx);
+    } else el.innerHTML = '<span class="pend">scoring…</span>';
     return;
   }
-  // Your list gets the review's tier bar; the AI's moves already carry its own win%.
-  if (sdTab === 'you') {
-    const rv = side.review;
-    if (rv) {
-      const [ok, inacc, mist, blun] = rv.counts ?? [0, 0, 0, 0];
-      const sum = document.createElement('div');
-      // The stacked tier bar carries the whole summary. The per-move rows below are
-      // where the detail lives; aggregate cards and prose just restated them.
-      sum.innerHTML = `<div id="rvbar"></div>`;
-      list.appendChild(sum);
-      const bar = $('rvbar'), tot = Math.max(1, rv.nLive ?? rv.n ?? 0);
-      for (const [c, col] of [[ok, '#36d39a'], [inacc, '#f5c542'], [mist, '#ff9f45'], [blun, '#ff4d5e']] as const) {
-        if (!c) continue;
-        const el = document.createElement('i');
-        el.style.width = (100 * c / tot) + '%'; el.style.background = col;
-        bar.appendChild(el);
-      }
-      // While rolling (rv.partial) the growing tier bar is the progress readout —
-      // no "Scoring… x/y" line, so nothing disappears (and reflows) on completion.
-    }
-    if (reviewErr[sdIdx] && !reviewing.has(sdIdx)) {
-      // Scoring starts automatically when the panel opens — the only interactive
-      // state left is a failed run, which stays tappable to retry.
-      const btn = document.createElement('div');
-      btn.className = 'act';
-      btn.style.cssText = 'text-align:center;padding:10px;border-radius:9px;'
-        + 'background:rgba(95,208,214,.10);border:1px solid rgba(95,208,214,.35);margin-bottom:12px';
-      btn.textContent = `Scoring failed — tap to retry (${reviewErr[sdIdx]})`;
-      btn.onclick = () => runReview(sdIdx);
-      list.appendChild(btn);
-    } else if (!rv) {
-      // first move's search still out — the tier bar takes over as soon as it lands
-      const p = document.createElement('div');
-      p.className = 'spin';
-      p.textContent = 'Scoring…';
-      list.appendChild(p);
-    }
+  if (sm.dead) { el.innerHTML = '<span class="pend">decided</span>'; return; }
+  if (sm.gap == null) { el.innerHTML = ''; return; }
+  if (sm.gap < 0.5) { el.innerHTML = '<b>Best</b>'; return; }
+  el.innerHTML = `<b>${tierOf(sm.gap).label}</b> −${sm.gap.toFixed(0)}%`
+    + (sm.bestLbl === 'end' ? ' · best: end turn' : ' · best <i class="dash"></i>');
+  // Labels carry grid x/y, which identify the nodes on the replayed board.
+  const s = ib?.state, b = sm.bestLbl;
+  if (ib && s && b && b !== 'end') {
+    const id = (p: Pip) => s.nodes.find(n => n.x === p.x && n.y === p.y)?.id;
+    ib.bestMove = { from: id(b.f), to: id(b.t) };
   }
+  ib?.draw();
+}
 
-  const rv = sdTab === 'you' ? side.review : null;
-  side.moves.forEach((mv, k) => {
-    const sm = rv ? rv.moves[k] : null;
-    const t = (!sm || sm.gap == null || sm.dead) ? { k: 0 } : tierOf(sm.gap);
-    const row = document.createElement('div');
-    row.className = 'mv t' + t.k + (sm && sm.dead ? ' dead' : '') + (k === sdSel ? ' cur' : '');
-    // Labels are recorded at play time (mv.l), so both lists read as pips with no
-    // replay needed; the review's snapshot is an equivalent fallback. A move saved
-    // before labels existed falls back to raw ids — never to a wrong label.
-    const lb = mv.l || (sm && sm.label);
-    const lab = mv.e ? mvLabel('end')
-      : lb ? mvLabel(lb) : `<span class="lbl">${mv.a[0]} → ${mv.a[1]}</span>`;
-    const q = sm ? sm.myQ : mv.q;
-    const gapTxt = !sm ? (rv && rv.partial ? '…' : '') : sm.gap == null ? '—'
-      : sm.dead ? 'decided' : (sm.gap < 0.5 ? 'best' : `−${sm.gap.toFixed(0)}%`);
-    row.innerHTML = `<span class="no">${k + 1}</span>${lab}`
-      + `<span class="qq">${q != null ? Math.round(q * 100) + '%' : ''}</span>`
-      + `<span class="gap">${gapTxt}</span>`;
-    row.onclick = () => select(k);
-    if (canHover) row.onmouseenter = () => hoverPreview(k);
-    list.appendChild(row);
-    if (sm?.bestLbl && !sm.dead && sm.gap != null && sm.gap >= 5) {
-      const hint = document.createElement('div');
-      hint.className = 'mvbest';
-      hint.innerHTML = `best was ${mvLabel(sm.bestLbl)} · ${Math.round((sm.bestQ ?? 0) * 100)}%`;
-      list.appendChild(hint);
-    }
-  });
-  if (canHover) list.onmouseleave = hoverEnd;
+// Tap or drag along the strip to jump to a move.
+function stripScrub(strip: HTMLElement) {
+  const at = (x: number) => {
+    const cells = [...strip.children].filter(c => c.tagName === 'I');
+    let k = cells.findIndex(c => c.getBoundingClientRect().right >= x);
+    if (k < 0) k = cells.length - 1;
+    if (k >= 0 && k !== sdSel) select(k);
+  };
+  strip.onpointerdown = e => { strip.setPointerCapture(e.pointerId); at(e.clientX); };
+  strip.onpointermove = e => { if (strip.hasPointerCapture(e.pointerId)) at(e.clientX); };
 }
 
 // ---- move inspector: replay the seed to move k and show that exact board ----
 let inspectSeq = 0;
 // Paint the board as it stood going into move k (bit-exact replay from the seed).
-// Shared by tap-to-select and hover preview — only select() moves the selection.
 async function showMove(k: number) {
   const r = M.rounds[sdIdx];
-  const side = sdTab === 'you' ? r.you : r.ai;
+  const side = sdSide();
   if (k < 0 || k >= side.moves.length) return;
   const my = ++inspectSeq;
-  $('ibinfo').textContent = 'Replaying…';
   let s: GameView;
   try { s = await inspectMove(r.seed, side.moves, k, r.rules ?? LEGACY_RULES_VERSION); }
   catch (e) {
@@ -1217,39 +1202,19 @@ async function showMove(k: number) {
   // highlight the move about to be played
   ib.hoverMove = mv.e ? null : { from: mv.a[0], to: mv.a[1] };
   ib.resize();
-  // The board already highlights the attack — no raw node ids here (the board
-  // never labels them, so "3 → 7" identified nothing).
-  $('ibinfo').innerHTML = `<b>Move ${k + 1}</b> · turn ${s.turn} · ${s.counts.red} red nodes`
-    + `${mv.e ? ' · end turn' : ''}`;
+  $('ibinfo').innerHTML = `<b>Move ${k + 1}</b>/${side.moves.length} · turn ${s.turn}`
+    + `${mv.e ? ' <span class="pill">end turn</span>' : ''}`;
+  paintGrade();
 }
 function select(k: number) {
-  const r = M.rounds[sdIdx];
-  const side = sdTab === 'you' ? r.you : r.ai;
-  if (k < 0 || k >= side.moves.length) return;
-  sdSel = k;
-  renderList();
+  const side = sdSide();
+  if (side.moves.length && (k < 0 || k >= side.moves.length)) return;
+  sdSel = side.moves.length ? k : -1;
+  paintSel();
+  if (sdSel < 0) { if (ib) { ib.state = null; ib.resize(); } $('ibinfo').textContent = ''; return; }
   showMove(k);
 }
 const step = (d: number) => select(sdSel < 0 ? 0 : sdSel + d);
-
-// Hovering a move row previews it on the board without moving the selection;
-// leaving the list snaps back to the selected move. Pointer devices only —
-// on touch the tap already selects. Debounced so sweeping the cursor down the
-// list doesn't fire a replay per row; inspectSeq makes stale replays no-ops.
-const canHover = matchMedia('(hover: hover)').matches;
-let hoverTimer = 0, hoverK = -1;
-function hoverPreview(k: number) {
-  if (k === hoverK) return;
-  hoverK = k;
-  clearTimeout(hoverTimer);
-  hoverTimer = setTimeout(() => showMove(k), 60);
-}
-function hoverEnd() {
-  clearTimeout(hoverTimer);
-  if (hoverK < 0) return;
-  hoverK = -1;
-  if (sdSel >= 0) showMove(sdSel);
-}
 
 const reviewing = new Set<number>();          // round indices being scored (transient — never saved)
 const reviewErr: Record<number, string> = {}; // last scoring error per round index (transient)
@@ -1260,10 +1225,7 @@ function scheduleReviewPaint() {
   if (reviewPaint) return;
   reviewPaint = requestAnimationFrame(() => {
     reviewPaint = 0;
-    if (seedPanelOn(sdIdx)) {
-      if (sdTab === 'you') renderList();
-      redrawSeedGraphs(M.rounds[sdIdx]);
-    }
+    if (seedPanelOn(sdIdx)) paintSel();
     refreshSkill();
   });
 }
@@ -1274,10 +1236,10 @@ async function runReview(i: number) {
   refreshSkill();
   const r = M.rounds[i];
   let checkpointAt = performance.now();
-  if (seedPanelOn(i) && sdTab === 'you') renderList();  // swap a retry line to 'Scoring…'
+  if (seedPanelOn(i)) paintSel();  // swap a retry line to 'scoring…'
   try {
     // Rolling readout: every scored move lands in r.you.review immediately
-    // (marked .partial, so renderList shows '…' pending rows) — the early
+    // (marked .partial, so the move strip shows pending cells) — the early
     // rows are readable while the rest are still searching, and both the
     // tally's skill graph and this seed's win% panel fill in as they land.
     // Checkpoint finished positions at most once a second. Reloads/retries resume
@@ -1298,10 +1260,7 @@ async function runReview(i: number) {
   } finally {
     reviewing.delete(i);
   }
-  if (seedPanelOn(i)) {
-    if (sdTab === 'you') renderList();
-    redrawSeedGraphs(r);
-  }
+  if (seedPanelOn(i)) paintSel();
   refreshSkill();
 }
 
