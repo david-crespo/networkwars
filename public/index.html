@@ -264,6 +264,7 @@
         <div class="mi sp" data-speed="slow">Slow</div>
         <div class="div"></div>
         <div class="mi" id="mi-export">Save Data (JSON)</div>
+        <div class="mi" id="mi-import">Load Data (JSON)&hellip;</div>
         <div class="mi" id="mi-errors">Errors<span id="mi-errn"></span></div>
       </div>
     </div>
@@ -510,7 +511,9 @@ const randSeed = () => Math.floor(Math.random() * 0x7ffffffe) + 1;
 // trimmed seed just can't be opened in the analysis panel any more.
 const SAVE_CAP = 2.0e6;       // chars (~100 seeds of full detail) — headroom under Safari's quota
 let trimNoted = false;
+let saveFrozen = false;       // set once an imported tally is stored, until the reload
 function save() {
+  if (saveFrozen) return true;
   for (;;) {
     const js = JSON.stringify(M);
     if (js.length > SAVE_CAP && trimOldest()) continue;
@@ -1684,6 +1687,7 @@ $('mi-paste').onclick = async () => {
   await startSeed();
 };
 
+const SETTINGS = ['nwSweep', 'nwSpeed', 'nwSkillZoom'];
 // ---- data export: the whole tally (every seed, move list and review) + settings as
 // one JSON download, plus the session's diagnostics (see `diag`). The in-memory
 // tally is exported, not the stored copy: it is never older, and if saves have been
@@ -1696,7 +1700,7 @@ $('mi-export').onclick = () => {
   const data = {
     app: 'network-wars-h2h', exported: new Date().toISOString(),
     tally: M,
-    settings: Object.fromEntries(['nwSweep', 'nwSpeed', 'nwSkillZoom'].map(k => [k, get(k)])),
+    settings: Object.fromEntries(SETTINGS.map(k => [k, get(k)])),
     diagnostics: {
       userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency,
       reviewWorkers: reviewer.workers, tallyChars: tally.length,
@@ -1713,6 +1717,36 @@ $('mi-export').onclick = () => {
   a.download = `network-wars-${data.exported.slice(0, 10)}.json`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+};
+
+// ---- data import: replace the tally + settings with a Save Data export (e.g. to
+// move a tally to another deploy, since localStorage is per origin). The page then
+// reloads so the workers and pumps start over on the imported tally; until then
+// saves are frozen so in-flight AI/review results for the old tally can't write
+// into it. Diagnostics and the error log are not imported. ----
+const importInput = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' });
+$('mi-import').onclick = () => { menupop.classList.remove('show'); importInput.click(); };
+importInput.onchange = async () => {
+  const file = importInput.files[0];
+  importInput.value = '';
+  if (!file) return;
+  let data;
+  try { data = JSON.parse(await file.text()); } catch (_) { setStatus('Not a JSON file.'); return; }
+  const t = data?.tally;
+  if (data?.app !== 'network-wars-h2h' || !t || !Array.isArray(t.rounds) || !t.rounds.length
+      || !Number.isInteger(t.idx) || !t.rounds[t.idx]) {
+    setStatus('Not a Network Wars data export.'); return;
+  }
+  if (!confirm(`Replace this tally (${M.rounds.length} seeds) with the file's (${t.rounds.length} seeds)?`)) return;
+  const old = M;
+  M = t;
+  if (!save()) { M = old; save(); setStatus('Could not store the imported tally.'); return; }
+  saveFrozen = true;
+  for (const k of SETTINGS) {
+    const v = data.settings?.[k];
+    try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) {}
+  }
+  location.reload();
 };
 
 // ---- error log: a menu item + panel (see reportError), counted in the menu only,
