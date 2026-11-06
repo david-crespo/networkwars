@@ -23,3 +23,9 @@ panic = "unwind"
 [profile.size]
 inherits = "release"
 opt-level = "s"
+
+# Release with symbols, for profilers.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false

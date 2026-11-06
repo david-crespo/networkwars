@@ -12,29 +12,33 @@ async function wasmBytes() {
   return (await fetch(WASM_URL)).arrayBuffer();
 }
 
-let compiled;
-
-export default async function Module() {
-  compiled ??= WebAssembly.compile(await wasmBytes());
-  const instance = await WebAssembly.instantiate(await compiled, {});
-  const x = instance.exports;
-  // Memory can grow during a search; refresh the views when the buffer changes.
-  let buffer, heap32, heapF64;
-  const views = () => {
-    if (buffer !== x.memory.buffer) {
-      buffer = x.memory.buffer;
-      heap32 = new Int32Array(buffer);
-      heapF64 = new Float64Array(buffer);
+// A module factory over any build's bytes (the benches compare several).
+export function moduleFrom(getBytes) {
+  let compiled;
+  return async function Module() {
+    compiled ??= WebAssembly.compile(await getBytes());
+    const instance = await WebAssembly.instantiate(await compiled, {});
+    const x = instance.exports;
+    // Memory can grow during a search; refresh the views when the buffer changes.
+    let buffer, heap32, heapF64;
+    const views = () => {
+      if (buffer !== x.memory.buffer) {
+        buffer = x.memory.buffer;
+        heap32 = new Int32Array(buffer);
+        heapF64 = new Float64Array(buffer);
+      }
+    };
+    const M = {
+      get HEAP32() { views(); return heap32; },
+      get HEAPF64() { views(); return heapF64; },
+      _malloc: x.nw_malloc,
+      _free: x.nw_free,
+    };
+    for (const [name, value] of Object.entries(x)) {
+      if (typeof value === 'function' && !name.startsWith('nw_')) M['_' + name] = value;
     }
+    return M;
   };
-  const M = {
-    get HEAP32() { views(); return heap32; },
-    get HEAPF64() { views(); return heapF64; },
-    _malloc: x.nw_malloc,
-    _free: x.nw_free,
-  };
-  for (const [name, value] of Object.entries(x)) {
-    if (typeof value === 'function' && !name.startsWith('nw_')) M['_' + name] = value;
-  }
-  return M;
 }
+
+export default moduleFrom(wasmBytes);

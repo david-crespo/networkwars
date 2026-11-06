@@ -30,6 +30,12 @@ NODE_OPTIONS=--import=$PWD/engine/pkg/use-rust-engine.mjs uv run --project solve
 
 # differential tests against the C reference (NW_C_ENGINE overrides the path)
 (cd engine && cargo nextest run --release)
+
+# speed: µs/sim on fixed searches in node, Chromium and WebKit (any .js/.wasm builds)
+node engine/bench/browser_bench.mjs node,chromium,webkit c=src/fast_engine.js rust=engine/pkg/nw_engine.wasm
+GAMES=108,374 node engine/bench/browser_bench.mjs node    # whole games: total and slowest search
+(cd engine && cargo run --release --example bench)        # native µs/sim + digest
+(cd engine && cargo run --release --example games -- 2000 108 374)
 ```
 
 Clang contracts `a += b * c` into FMA by default (`-ffp-contract=on`), and
