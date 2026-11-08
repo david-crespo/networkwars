@@ -1064,8 +1064,8 @@ function openSeed(i: number, opts: { fromResults?: boolean; sel?: number } = {})
     </div>
     <div id="ibnav">
       <div id="sd-strip"></div>
-      <div class="act" id="ib-prev" aria-label="Previous move">‹</div>
-      <div class="act" id="ib-next" aria-label="Next move">›</div>
+      <div class="act" id="ib-prev" aria-label="Previous move"><svg viewBox="0 0 24 24"><path d="M14.5 5 7.5 12l7 7"/></svg></div>
+      <div class="act" id="ib-next" aria-label="Next move"><svg viewBox="0 0 24 24"><path d="m9.5 5 7 7-7 7"/></svg></div>
     </div>`;
   // Show BEFORE painting: every canvas here sizes itself from getBoundingClientRect,
   // which is 0x0 while the overlay is still display:none.
