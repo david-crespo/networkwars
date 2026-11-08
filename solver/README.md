@@ -53,8 +53,9 @@ in-browser as WASM (built from `../engine/`), no Python needed.
   openings lost in live play (see `HARD_SET.md`).
 
 The single win% readout (live dashboard + JSONL) is **`winexp`** — the search's own
-backed-up Q of the chosen move. It falls out of the MCTS (no separate calibration
-model) and tracks real outcomes at AUC ~0.955.
+backed-up Q of the chosen move. It ranks outcomes well (AUC ~0.955) but runs
+pessimistic, so the page maps it through a calibration table fit by
+**`calibrate.py`** (see `MATH_AUDIT.md`).
 
 Deps are managed with `uv` (`pyproject.toml` / `uv.lock`); the only runtime
 dependency is `numpy<2`. The native library is gitignored — rebuild with `../engine/build.sh`.

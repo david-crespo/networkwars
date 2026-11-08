@@ -77,9 +77,46 @@ is the right quantity; it is still a sampled assurance, not a guarantee.
 
 Review comparisons retain the visit-selected recommendation rather than taking
 the maximum of many noisy Q estimates. The nonnegative loss is measured in
-percentage points. Equal weighting of game averages avoids letting long games
+points of calibrated win% (below). Equal weighting of game averages avoids letting long games
 dominate skill comparisons. The two-standard-error comparison remains a
 cautious descriptive signal, not a calibrated test of underlying skill.
+
+## Win% calibration (2026-11-07)
+
+Root Q ranks positions well but runs pessimistic, because the rollouts are
+played by a weak policy. On 8,000 self-play games, positions the AI's search
+rated 10% were won 56% of the time, and 30% were won 80% of the time. The page
+therefore maps every Q through `src/calibration.ts` before showing it or
+grading with it. Reviews used to subtract raw Qs, so a drop from 95% to 75%
+scored as a 20-point blunder when it costs under 2 points of real win%. A drop
+from 30% to 10% also scored 20, and it costs 22.
+
+`solver/calibrate.py` fits the tables. Self-play runs at a fixed 6000 sims,
+and each game's outcome is the label for every decision in it. The fit is
+isotonic (PAV) with blocks merged to at least 150 decisions, then a monotone
+cubic through the block centers, so nearby Qs never share a flat step and a
+small Q difference never scores as a zero gap.
+
+Longer searches read close positions higher than a fixed 6000-sim search does
+at the same position. At one random decision per game, the AI's adaptive search
+(6000 sims up to 150k) read +.07 to +.08 higher between fixed Q .05 and .5, and
+the review's grading mode (16k–24k) read +.05 to +.06 higher. Each therefore
+has its own table, mapping its Q to the fixed-budget Q expected at that
+position and then to win%. Without the split, the review's table would
+overstate win% by 3–6 points in that range. At those sampled positions both
+tables match the outcomes: between fixed Q .2 and .5, both predict .880, and
+.880 was won.
+
+An earlier table, fit with a 2000-sim continuation player, matched the fixed
+6000-sim fit within its bootstrap interval. A difference of 10–20 points seen
+after 2,000 games came from which games finished first and disappeared at 8,000.
+
+Remaining approximations:
+- Outcomes come from a fixed 6000-sim player. Playing whole games at the page's
+  adaptive budget runs about 25× slower. Both win about 96% of seeds.
+- The tables give the AI's chance of winning from a position. For your decisions
+  that is the value of the position if the AI took over, the standard for review.
+- Low-Q bins are thin. At Q .01 the 90% bootstrap interval spans .13 to .23.
 
 ## Validation
 
