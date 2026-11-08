@@ -70,6 +70,11 @@ footer { display:flex; justify-content:space-between; align-items:center; gap:8p
 .act:active { opacity:.55; }
 .act.off { opacity:.3; pointer-events:none; }
 #endturn { font-size:20px; }
+/* the result, between the bolt and End Turn, while the finished board shows before the next seed */
+#over { display:none; padding:8px 12px; border-radius:6px; font-size:16px; font-weight:700;
+  line-height:1; text-box:trim-both cap alphabetic; /* center the capitals, not the line box */
+  color:#eef2f6; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.28); }
+footer.over #over { display:block; }
 /* animation speed: off = fast, on = instant */
 #bolt { flex:0 0 auto; width:40px; height:40px; margin-left:-8px; padding:8px; border:0;
   background:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }

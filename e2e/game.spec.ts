@@ -207,7 +207,10 @@ test('forfeiting records a loss, deals the next seed and opens the analysis', as
   page.on('dialog', (d) => d.accept())
   await page.locator('#menu').tap()
   await page.locator('#mi-forfeit').tap()
+  // The result shows in the footer until the next seed is dealt.
+  await expect(page.locator('#over')).toHaveText('Forfeited')
   await page.waitForFunction(() => window.__nw.model().rounds.length === 2)
+  await expect(page.locator('#over')).toBeHidden()
   const first = await page.evaluate(() => window.__nw.model().rounds[0].you)
   expect([first.result, first.forfeit, first.turns]).toEqual(['lost', 1, 2])
   expect(first.moves).toHaveLength(2)

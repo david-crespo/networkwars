@@ -566,6 +566,9 @@ async function afterYourGame() {
   const i = M.idx, r = M.rounds[i];
   const lost = r.you.result === 'lost';
   renderStrip();
+  const over = $('over'), footer = over.parentElement!;
+  over.textContent = r.you.forfeit ? 'Forfeited' : lost ? 'You lost' : 'You won';
+  footer.classList.add('over');
   // Start this review even when the backlog pump is waiting on an older game.
   // Worker priority yields at the next complete search, preserving its grades.
   runReview(i).then(scorePump);
@@ -575,6 +578,7 @@ async function afterYourGame() {
   M.idx = M.rounds.length - 1;
   save();
   await startSeed();
+  footer.classList.remove('over');
   // A loss is the interesting case — open its analysis and start scoring immediately.
   // The next seed is already dealt underneath, so closing drops you straight into it.
   if (lost) openSeed(i);
