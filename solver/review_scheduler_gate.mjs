@@ -1,6 +1,7 @@
 // Deterministic orchestration tests; actual search/replay parity is review_gate.mjs.
 import assert from 'node:assert/strict';
 import { createReviewer, REVIEW_SIMS } from '../src/review.ts';
+import { gradedWinProb } from '../src/calibration.ts';
 import { createReplayInspector } from '../src/replay.ts';
 import vm from 'node:vm';
 import { pageSlice } from './page_slice.mjs';
@@ -128,13 +129,16 @@ const gradeValues = async (bestQ, myQ) => {
         { action: -1, visits: 1000, q: myQ }] };
   return createReviewer(create, 1).grade(r);
 };
-const thrown = await gradeValues(.995, .3);
+// Gaps are in calibrated win% points, not raw Q.
+const thrown = await gradeValues(.995, .1);
 assert.equal(thrown.nLive, 1);
 assert.equal(thrown.moves[0].dead, false);
-assert.equal(thrown.moves[0].gap, 69.5);
+assert.ok(Math.abs(thrown.moves[0].gap - 100 * (gradedWinProb(.995) - gradedWinProb(.1))) < 1e-3);
 assert.deepEqual(thrown.counts, [0, 0, 0, 1]);
 assert.equal((await gradeValues(.995, .99)).nLive, 0);
-assert.equal((await gradeValues(.01, .005)).nLive, 0);
+assert.equal((await gradeValues(.0005, .0002)).nLive, 0);
+// Raw Q 1% is still a live position once calibrated.
+assert.equal((await gradeValues(.01, .0002)).nLive, 1);
 assert.equal((await gradeValues(.5, .3)).nLive, 1);
 assert.equal((await gradeValues(.99, NaN)).n, 0);
 console.log('PASS: winning-position blunders retained; same-band extremes excluded; invalid Q unscored');

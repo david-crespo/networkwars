@@ -29,6 +29,7 @@
 import { Board, ORDER, SPEEDS, sleep, drawThumb } from './board.ts';
 import { createReviewer, tierOf, invalidateStaleReview } from './review.ts';
 import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.ts';
+import { winProb } from './calibration.ts';
 import { aiWinCurve, youWinCurve, type CurvePoint } from './projections.ts';
 import { createReplayInspector } from './replay.ts';
 import { skillHistory, skillComparison, skillTrend, type SkillGame } from './skill.ts';
@@ -1135,7 +1136,7 @@ function paintGrade() {
   el.onclick = null;
   if (ib) ib.bestMove = null;
   if (!mv) { el.innerHTML = ''; return; }
-  if (sdTab === 'ai') { el.innerHTML = mv.q != null ? `${Math.round(mv.q * 100)}% win` : ''; return; }
+  if (sdTab === 'ai') { el.innerHTML = mv.q != null ? `${Math.min(99, Math.max(1, Math.round(winProb(mv.q) * 100)))}% win` : ''; return; }
   const sm = side.review?.moves[sdSel];
   if (!sm) {
     if (reviewErr[sdIdx] && !reviewing.has(sdIdx)) {

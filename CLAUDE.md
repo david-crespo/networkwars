@@ -16,9 +16,10 @@ by decompiling the shipped IPA.
 - `src/`: the page (TypeScript, Vite). `main.ts` has the model, persistence, AI and review
   pumps, and rendering; `engine.worker.ts` holds game state and serves the `/api/*` routes
   in a Web Worker; `fastnw.ts` marshals the WASM exports; `board.ts` draws and animates
-  the board; `review.ts` scores decisions; `skill.ts` and `projections.ts` compute the
-  skill comparison and win% curves; `replay.ts` caches inspector trajectories; `types.ts`
-  has the shared shapes; `sw.ts` is the service worker.
+  the board; `review.ts` scores decisions; `calibration.ts` maps search Q to win%;
+  `skill.ts` and `projections.ts` compute the skill comparison and win% curves;
+  `replay.ts` caches inspector trajectories; `types.ts` has the shared shapes; `sw.ts`
+  is the service worker.
 - `solver/`: the Python lab, the node gates and most docs. Python is for scripting and
   analysis (process pools, stats, fits) and implements no rules. `fastnw.py` loads
   `engine/target/release/libnw_engine.dylib` via ctypes (`NW_ENGINE_SO` overrides);
@@ -58,7 +59,7 @@ Workers Builds deploys every push to `main` (`wrangler.jsonc`, serving `dist/`).
   and what remains approximate.
 - `solver/REAL_BATTLE_DECOMPILED.md`, `REAL_BOT_DECOMPILED.md`, `MAP_DEAL_DECOMPILED.md`:
   how battle, bot turns and the deal were recovered.
-- `solver/MATH_AUDIT.md`: search and projection math, corrections and caveats.
+- `solver/MATH_AUDIT.md`: search and projection math, win% calibration, corrections and caveats.
 - `solver/SWEEP_UP.md`: why sweep-up uses a policy certificate.
 - `solver/REVIEW_PERFORMANCE.md`: review speed and accuracy.
 - `solver/SEARCH_VARIANTS.md`, `solver/HARD_SET.md`: search experiments and the hard-opening benchmark.
@@ -120,9 +121,12 @@ pass). `/load-board` is for `rules_worker_gate.mjs` only. Failures come back as 
   oldest. It switches seeds only between complete moves, resumes saved actions without
   re-searching, and parks a seed it can't play in `aiErr` instead of throwing.
 - **Review** (`review.ts`): grading-mode searches of every position you faced, 16k floor
-  and 24k ceiling (only forced moves stop at the floor). A decision is excluded only when
-  both the best and the played Q sit in the same extreme band (≤2% or ≥98%), so throwing
-  away a won game still counts. Bump `REVIEW_VERSION` when grading results change. The
+  and 24k ceiling (only forced moves stop at the floor). Raw Q is pessimistic, so gaps,
+  curves and the AI's win% go through `calibration.ts` (Q to the AI's win rate from
+  there, fit by `solver/calibrate.py`; refit after a search change). A decision is
+  excluded only when both calibrated values sit in the same extreme band (≤2% or ≥98%),
+  so throwing away a won game still counts. Bump `REVIEW_VERSION` when grading results
+  change. The
   page drops the pool to one lane while the AI plays, so grading doesn't starve it, and
   never to zero, so an open analysis keeps progressing.
 - **Sweep-up** (opt-in): auto-plays a won game with the engine's mop-up policy. The offer

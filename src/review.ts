@@ -3,6 +3,7 @@
 // dedicated engine workers. Pure orchestration over engine.worker.ts — no game
 // rules live here (all of those are in engine/nw-core). The page owns the model,
 // persistence and rendering; this module only turns a round into a review.
+import { gradedWinProb } from './calibration.ts';
 import { LEGACY_RULES_VERSION } from './game-version.ts';
 import type { Api, GameView, Label, NodeView, Review, ReviewMove, Round, SearchResult } from './types.ts';
 
@@ -13,12 +14,19 @@ import type { Api, GameView, Label, NodeView, Review, ReviewMove, Round, SearchR
 export const REVIEW_SIMS = 16000, REVIEW_MAX = 24000;
 // Bump when grading semantics/search results change. Checkpoints additionally
 // identify the exact seed + action sequence, so they cannot grade another game.
-export const REVIEW_VERSION = 2;
+// 3: gaps and the dead band use calibrated win% instead of raw Q.
+export const REVIEW_VERSION = 3;
 const reviewSource = (r: Round) => JSON.stringify([r.seed,
   r.you.moves.map(m => m.e ? -1 : m.a), r.rules ?? LEGACY_RULES_VERSION]);
 
 export function invalidateStaleReview(round: Round) {
-  const side = round.you;
+  const side = round.you, rv = side.review;
+  // Version 2 kept both raw Qs, so its scores can be recomputed without searching.
+  if (rv?.version === 2 && rv.moves?.length && rv.moves.every(m => !m || 'bestQ' in m)) {
+    for (const m of rv.moves) if (m) Object.assign(m, scoreDecision(m.bestQ, m.myQ));
+    rv.version = REVIEW_VERSION;
+    if (!rv.partial) reviewAggregates(rv);
+  }
   if (side.review && side.review.version !== REVIEW_VERSION) {
     // Requeue replayable games; retain compact historical scores without
     // comparing them against the current evaluation method.
@@ -32,9 +40,19 @@ export const TIERS = [
   { min: 5,  k: 1, label: 'Inaccuracy' },
 ];
 // Skip a decision only when both the recommended and played move stay in the
-// same extreme band. A move that throws away a winning position must be scored.
+// same extreme band of calibrated win%. A move that throws away a winning
+// position must be scored. Tiers are in the same win% points.
 export const DEAD_LO = 0.02, DEAD_HI = 0.98;
 export const tierOf = (gap: number) => (TIERS.find(t => gap >= t.min) || { k: 0, label: 'OK' });
+
+/** Win% points lost by playing myQ instead of bestQ; null when either is unknown. */
+export function scoreDecision(bestQ: number | null | undefined, myQ: number | null | undefined) {
+  if (bestQ == null || myQ == null || !Number.isFinite(bestQ) || !Number.isFinite(myQ))
+    return { gap: null, dead: false };
+  const best = gradedWinProb(bestQ), mine = gradedWinProb(myQ);
+  return { gap: Math.round(Math.max(0, best - mine) * 1e6) / 1e4,
+    dead: (best <= DEAD_LO && mine <= DEAD_LO) || (best >= DEAD_HI && mine >= DEAD_HI) };
+}
 
 // Pool size: the machine minus the two workers already playing (yours + the
 // AI's), capped so a big desktop doesn't fan out past diminishing returns.
@@ -156,10 +174,9 @@ export function createReviewer(makeEngine: () => Api, workers = REVIEW_WORKERS,
       const best = all[0] || null;
       const mine = all.find(m => isEnd ? m.action === -1 : (m.from === from && m.to === to));
       // Unvisited tail moves have no reliable Q — record the move but leave it unscored
-      // rather than inventing a number (same guard the live blunder alert uses).
+      // rather than inventing a number.
       const scored = !!(best && best.visits > 0 && mine && mine.visits > 0
         && Number.isFinite(best.q) && Number.isFinite(mine.q));
-      const gap = best && mine && scored ? Math.max(0, (best.q - mine.q) * 100) : null;
       // Labels carry only what the move lists render (pip owner/strength + the arrow's
       // x/y); Qs are kept to 4 dp. The review is persisted per seed, so its footprint
       // is what bounds how many seeds fit in localStorage.
@@ -169,11 +186,8 @@ export function createReviewer(makeEngine: () => Api, workers = REVIEW_WORKERS,
       const bestLbl = !best || !scored || best === mine ? null
         : best.from == null || best.to == null ? 'end' as const
         : { f: pip(s.nodes[best.from]), t: pip(s.nodes[best.to]) };
-      // Exclude low-signal decisions, not blunders made from winning positions.
-      const dead = !!best && !!mine && scored && ((best.q <= DEAD_LO && mine.q <= DEAD_LO)
-        || (best.q >= DEAD_HI && mine.q >= DEAD_HI));
-      return { n: k + 1, turn: s.turn, isEnd, label, bestLbl, dead,
-        myQ: scored ? r4(mine?.q) : null, bestQ: best ? r4(best.q) : null, gap: r4(gap) };
+      const myQ = scored ? r4(mine.q) : null, bestQ = best ? r4(best.q) : null;
+      return { n: k + 1, turn: s.turn, isEnd, label, bestLbl, myQ, bestQ, ...scoreDecision(bestQ, myQ) };
     };
 
     // Hand the worker back after each position. Higher-priority reviews get the
