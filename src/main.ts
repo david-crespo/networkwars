@@ -677,11 +677,15 @@ $('cv').addEventListener('pointerup', dragUp);
 for (const ev of ['contextmenu', 'selectstart']) $('cv').addEventListener(ev, (e) => e.preventDefault());
 $('cv').addEventListener('pointercancel', (ev) => { if (drag && ev.pointerId === drag.pid) { endDrag(); board.draw(); } });
 $('endturn').onclick = () => { if (!sweeping) yourEndTurn(); };
-// Animation speed is the bolt next to End Turn: off = fast, on = instant.
+// Sweep-up state (the sweep section below); the speed reads `sweeping`.
+let sweepOn = false, sweeping = false, sweepDismissed = -1, sweepSeq = 0;
+// Animation speed is the bolt next to End Turn: off = fast, on = instant. A sweep
+// plays a little faster than fast.
 let instant = false;
+const applySpeed = () => { board.speed = instant ? SPEEDS.instant : sweeping ? SPEEDS.sweep : SPEEDS.fast; };
 function setInstant(on: boolean) {
   instant = on;
-  board.speed = on ? SPEEDS.instant : SPEEDS.fast;
+  applySpeed();
   $('bolt').setAttribute('aria-pressed', String(on));
 }
 try { setInstant(localStorage.getItem('nwSpeed') === 'instant'); } catch (_) { setInstant(false); }
@@ -707,7 +711,6 @@ $('bolt').onclick = () => {
 // the "your worker never searches" exception entirely: playouts are not searches,
 // so this page's worker now issues ZERO searches while you play, full stop.
 const SWEEP_TRIALS = 1000, SWEEP_STEP_TRIALS = 400, SWEEP_STEP_LOSSES = 2;
-let sweepOn = false, sweeping = false, sweepDismissed = -1, sweepSeq = 0;
 function hideSweep() { $('sweep').classList.remove('show'); }
 // A committed move invalidates any in-flight detection (the worker aborts it,
 // but its early result must not pop a stale offer for the pre-move position).
@@ -746,6 +749,7 @@ async function runSweep() {
   if (sweeping || !state || state.over || inputLocked) return;
   hideSweep();
   sweeping = true;
+  applySpeed();
   $('endturn').classList.add('off');
   const gid = state.id;
   try {
@@ -764,6 +768,7 @@ async function runSweep() {
     }
   } finally {
     sweeping = false;
+    applySpeed();
     $('endturn').classList.remove('off');
   }
 }

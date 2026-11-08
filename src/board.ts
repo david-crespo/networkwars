@@ -34,7 +34,7 @@ function tint(hex: string, white: number, alpha = 1) {
   return `rgba(${rgb.map(c => Math.round(c + (255-c)*white)).join(',')},${alpha})`;
 }
 export const ORDER: readonly Faction[] = ['red','green','yellow','blue','purple'];
-export const SPEEDS = { instant: 0, fast: 0.25 };  // sleep-time multiplier
+export const SPEEDS = { instant: 0, fast: 0.25, sweep: 0.2 };  // sleep-time multiplier
 
 export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
