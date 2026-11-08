@@ -1059,8 +1059,8 @@ function openSeed(i: number, opts: { fromResults?: boolean; sel?: number } = {})
       <div data-tab="you"></div>
     </div>
     <div id="ibnav">
-      <div class="act" id="ib-prev" aria-label="Previous move">‹</div>
       <div id="sd-strip"></div>
+      <div class="act" id="ib-prev" aria-label="Previous move">‹</div>
       <div class="act" id="ib-next" aria-label="Next move">›</div>
     </div>`;
   // Show BEFORE painting: every canvas here sizes itself from getBoundingClientRect,
