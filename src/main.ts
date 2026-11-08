@@ -526,11 +526,12 @@ function adopt(s: GameView) {
   board.draw();
 }
 
-// Disable End Turn until the attack or whole-turn animation finishes.
+// Disable End Turn until the attack or whole-turn animation finishes, or for
+// the whole sweep, which plays many of them.
 async function replayAnimation(run: () => Promise<void>) {
   $('endturn').classList.add('off');
   try { await run(); }
-  finally { $('endturn').classList.remove('off'); }
+  finally { $('endturn').classList.toggle('off', sweeping); }
 }
 
 async function yourAttack(from: number, to: number) {
@@ -734,6 +735,7 @@ async function runSweep() {
   if (sweeping || !state || state.over || inputLocked) return;
   hideSweep();
   sweeping = true;
+  $('endturn').classList.add('off');
   const gid = state.id;
   try {
     let guard = 400;                     // terminal-or-bust backstop, never hit in a won game
@@ -751,6 +753,7 @@ async function runSweep() {
     }
   } finally {
     sweeping = false;
+    $('endturn').classList.remove('off');
   }
 }
 
