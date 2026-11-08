@@ -109,6 +109,56 @@ test('the board fits the Safari viewport without scrolling', async ({ page }, in
   await page.screenshot({ path: info.outputPath('menu.png') })
 })
 
+test('a drag points at the target in its direction, and between targets at none', async ({ page }) => {
+  // A node with two targets, and for each a point off to the side of it, inside
+  // its eighth-turn wedge, past every drag candidate's snap distance and on the
+  // canvas. Plus a point outside every wedge.
+  const plan = await page.evaluate(() => {
+    const { board } = window.__nw, rect = board.cv.getBoundingClientRect(), r = board.layout.r
+    const at = (n: number) => board.nodePos(board.state.nodes[n])
+    const toPage = (p: { x: number; y: number }) => ({ x: rect.left + p.x, y: rect.top + p.y })
+    const turn = (a: number) => Math.abs(Math.atan2(Math.sin(a), Math.cos(a)))
+    for (const [from, targets] of board.targetsFor) {
+      const o = at(from), ids = new Set([from, ...targets])
+      const dir = (n: number) => Math.atan2(at(n).y - o.y, at(n).x - o.x)
+      // the page point at heading a, k radii out, if it's on the canvas and clear of every candidate
+      const open = (a: number, k: number) => {
+        const p = { x: o.x + Math.cos(a) * r * k, y: o.y + Math.sin(a) * r * k }
+        return p.x > 0 && p.y > 0 && p.x < rect.width && p.y < rect.height && !board.nearestOf(p.x, p.y, ids)
+          ? toPage(p) : null
+      }
+      const aims = [...targets].flatMap((to: number) => {
+        for (const side of [1, -1]) for (const off of [.25, .3, .35]) for (let k = 2; k <= 6; k += .5) {
+          const p = open(dir(to) + side * off, k)
+          const closest = [...targets].every((t: number) => t === to || turn(dir(t) - dir(to) - side * off) > Math.PI / 8)
+          if (p && closest) return [{ to, p }]
+        }
+        return []
+      })
+      // a heading at least 30° from every target
+      const miss = Array.from({ length: 72 }, (_, i) => i * Math.PI / 36)
+        .filter(a => [...targets].every((t: number) => turn(dir(t) - a) > Math.PI / 6))
+        .flatMap(a => [2, 2.5, 3, 3.5, 4].map(k => open(a, k))).find(Boolean)
+      if (aims.length >= 2 && miss) return { from, o: toPage(o), aims: aims.slice(0, 2), miss }
+    }
+    return null
+  })
+  expect(plan, 'a node with two targets and open board beside both').not.toBeNull()
+  const { from, o, aims: [first, second], miss } = plan!
+  await page.mouse.move(o.x, o.y)
+  await page.mouse.down()
+  await page.mouse.move(first.p.x, first.p.y, { steps: 8 })
+  expect(await page.evaluate(() => window.__nw.board.hoverMove)).toEqual({ from, to: first.to })
+  await page.mouse.move(miss.x, miss.y, { steps: 8 })
+  expect(await page.evaluate(() => window.__nw.board.hoverMove)).toBeNull()
+  await page.mouse.move(second.p.x, second.p.y, { steps: 8 })
+  expect(await page.evaluate(() => window.__nw.board.hoverMove)).toEqual({ from, to: second.to })
+  await page.mouse.up()
+  await ready(page)
+  const { round } = await current(page)
+  expect(round.you.moves.map((m: any) => m.a)).toEqual([[from, second.to]])
+})
+
 test('tapping a node then a target attacks it', async ({ page }) => {
   const [from, to] = await anyAttack(page)
   await tapNode(page, from)

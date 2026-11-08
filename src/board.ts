@@ -108,7 +108,6 @@ export class Board {
   bestMove: Partial<MoveRef> | null
   reviewColors: boolean
   pad: number
-  dragTo: Point | null
   overrides: Map<number, { strength: number; owner?: Faction }>
   battle: { from: number; to: number; elapsed?: number; clear?: number[] } | null
   flashId: number | null
@@ -139,7 +138,6 @@ export class Board {
     this.reviewColors = false;      // a review: the played move solid, the best dashed,
                                     // and no lit target as in the play preview
     this.pad = 38;                  // px kept clear around the board
-    this.dragTo = null;             // {x,y} canvas pt: a drag-to-attack in progress from `selected`
 
     // ---- transient state owned by the animations ----
     this.overrides = new Map();     // nodeId -> {strength, owner?} mid-battle
@@ -167,7 +165,6 @@ export class Board {
     this.selected = null;
     this.hoverMove = null;
     this.bestMove = null;
-    this.dragTo = null;
     this.indexMoves();
     this.positions = v.nodes.map(n => this.nodePos(n));
   }
@@ -406,13 +403,13 @@ export class Board {
     ctx.setLineDash([]); ctx.shadowBlur = 0;
 
     // nodes: links meet at the ground (pos); everything that marks a node sits on its raised top
-    const tops: Point[] = [], heights: number[] = [];
+    const heights: number[] = [];
     for (const n of nodes) {
       const ov = this.overrides.get(n.id);
       const owner = (ov && ov.owner) ? ov.owner : n.owner;
       const strength = ov ? ov.strength : n.strength;
       const h = nodeHeight(strength, layout.r);
-      const p = tops[n.id] = { x: pos[n.id].x, y: pos[n.id].y - h };
+      const p = { x: pos[n.id].x, y: pos[n.id].y - h };
       heights[n.id] = h;
       const isAtk = battle && n.id === battle.from;
       const isDef = battle && n.id === battle.to;
@@ -478,17 +475,6 @@ export class Board {
       const pf = pos[hoverMove.from], pt = pos[hoverMove.to];
       if (pf && pt) this._drawArrow(pf, pt, ARROW, null,
         heights[hoverMove.from], heights[hoverMove.to]);
-    }
-    // drag-to-attack in progress: a free line from the selected node to the pointer
-    // (once the pointer is over a legal target the page swaps this for hoverMove)
-    if (this.dragTo && selected !== null && tops[selected]) {
-      const pf = tops[selected], pt = this.dragTo;
-      ctx.save();
-      ctx.beginPath(); ctx.moveTo(pf.x, pf.y); ctx.lineTo(pt.x, pt.y);
-      ctx.strokeStyle = 'rgba(255,77,94,.75)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-      ctx.shadowColor = COLORS.red; ctx.shadowBlur = 8;
-      ctx.stroke();
-      ctx.restore();
     }
   }
 
@@ -557,7 +543,7 @@ export class Board {
   // The working board and header advance together, only at event boundaries.
   async animateEndTurn(res: { events: TurnEvent[] }) {
     const anim = this.animBoard = this.state!.nodes.map(n => ({ ...n }));
-    this.selected = null; this.hoverMove = null; this.dragTo = null;
+    this.selected = null; this.hoverMove = null;
     let curFaction: Faction | null = null;
     try {
       for (const ev of res.events) {

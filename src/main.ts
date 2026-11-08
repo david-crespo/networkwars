@@ -594,7 +594,7 @@ type Point = { x: number; y: number }
 let drag: { from: number; pid: number; retap?: boolean; at: Point } | null = null;
 const cvPt = (ev: PointerEvent): Point => { const b = $('cv').getBoundingClientRect(); return { x: ev.clientX - b.left, y: ev.clientY - b.top }; };
 function endDrag() {
-  drag = null; board.dragTo = null; board.hoverMove = null;
+  drag = null; board.hoverMove = null;
 }
 // Generous press: an exact hit wins; a press that misses every node snaps to the
 // nearest node it could act on (a red node with attacks, the selected node, or one
@@ -633,10 +633,22 @@ $('cv').addEventListener('pointerdown', (ev) => {
 // Where a drag from `from` currently points: an exact hit on the origin or a target,
 // else the nearest of them within the slop. The origin competes with its targets, so
 // an off-center press that snapped onto it doesn't attack a neighbor on release.
+// Away from every node, it's the target in the finger's direction from the origin,
+// within an eighth of a turn centered on it, so circling the origin sweeps through
+// its targets and the gaps between them pick nothing.
 function dragNode(p: Point, from: number) {
   const hit = board.hitNode(p.x, p.y), targets = board.targetsFor.get(from);
   if (hit && (hit.id === from || targets?.has(hit.id))) return hit;
-  return board.nearestOf(p.x, p.y, new Set([from, ...(targets ?? [])]));
+  const near = board.nearestOf(p.x, p.y, new Set([from, ...(targets ?? [])]));
+  if (near || !state || !targets) return near;
+  const o = board.nodePos(state.nodes[from]), heading = Math.atan2(p.y - o.y, p.x - o.x);
+  let best: NodeView | null = null, off = Math.PI / 8;
+  for (const t of targets) {
+    const n = state.nodes[t], q = board.nodePos(n), a = Math.atan2(q.y - o.y, q.x - o.x) - heading;
+    const d = Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
+    if (d < off) { off = d; best = n; }
+  }
+  return best;
 }
 // a press that barely moves is a tap, never an attack, wherever it snapped
 const dragged = (p: Point, at: Point) => Math.hypot(p.x - at.x, p.y - at.y) > board.layout.r * 0.6;
@@ -647,7 +659,6 @@ $('cv').addEventListener('pointermove', (ev) => {
   const moved = !n || n.id !== drag.from;
   if (moved) drag.retap = false;                   // it's a drag now, not a tap
   board.hoverMove = tgt ? { from: drag.from, to: tgt.id } : null;
-  board.dragTo = tgt ? null : p;                   // free line to the finger until it snaps to a target
   board.draw();
 });
 function dragUp(ev: PointerEvent) {
