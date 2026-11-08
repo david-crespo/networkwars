@@ -178,6 +178,8 @@ export interface Review {
 
 export interface Side {
   result: 'won' | 'lost' | null
+  /** You gave the seed up: `result` is 'lost' though the game never ended. */
+  forfeit?: 1
   turns: number
   red: number
   moves: Move[]

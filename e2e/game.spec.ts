@@ -198,6 +198,24 @@ test('Save Data then Load Data moves the tally to a fresh browser', async ({ pag
   await fresh.close()
 })
 
+test('forfeiting records a loss, deals the next seed and opens the analysis', async ({ page }) => {
+  const [from, to] = await anyAttack(page)
+  await tapNode(page, from)
+  await tapNode(page, to)
+  await ready(page)
+  await endTurn(page)
+  page.on('dialog', (d) => d.accept())
+  await page.locator('#menu').tap()
+  await page.locator('#mi-forfeit').tap()
+  await page.waitForFunction(() => window.__nw.model().rounds.length === 2)
+  const first = await page.evaluate(() => window.__nw.model().rounds[0].you)
+  expect([first.result, first.forfeit, first.turns]).toEqual(['lost', 1, 2])
+  expect(first.moves).toHaveLength(2)
+  await expect(page.locator('#ov-seed')).toBeVisible()
+  await expect(page.locator('#sd-tabs > div[data-tab="you"]')).toHaveText('You · forfeit · 2 turns')
+  expect((await current(page)).idx).toBe(1)
+})
+
 test('a finished game deals the next seed, then the AI and the review complete it', async ({ page }) => {
   test.setTimeout(5 * 60_000)
   // Ending every turn loses quickly (or gets RED wiped out).

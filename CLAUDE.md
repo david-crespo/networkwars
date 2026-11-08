@@ -114,6 +114,8 @@ pass). `/load-board` is for `rules_worker_gate.mjs` only. Failures come back as 
   worker. The seed fixes the board and the dice stream, removing the deal variance that
   dominates unpaired win rates; once moves diverge, the two games draw different coins.
   A loss opens its analysis automatically, with the next seed dealt underneath.
+  Forfeit Seed (menu) records a loss without finishing the game, marked `forfeit` on
+  your side; the AI still plays the seed.
 - **AI pump** (`nextAiSeed`): the inspected or just-finished pair first, then newest to
   oldest. It switches seeds only between complete moves, resumes saved actions without
   re-searching, and parks a seed it can't play in `aiErr` instead of throwing.

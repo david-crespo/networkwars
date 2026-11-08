@@ -312,8 +312,7 @@ function sampleHist(side: Side, s: GameView) {
   else side.hist.push(pt);
 }
 
-// Stamp a finished game's outcome. Per the project's gameplay policy there is no
-// surrender — every seed reaches a natural terminal.
+// Stamp a finished game's outcome. A forfeit (the menu) is stamped separately.
 function recordEnd(side: Side, s: GameView) {
   if (!s.over) return false;
   side.result = s.youWon ? 'won' : 'lost';
@@ -1027,7 +1026,7 @@ const resTag = (x: Side['result']) => `<span class="tag ${x || 'none'}">${x === 
 // result and must not be dressed up as one.
 // The tabs double as the chart's key (their colors) and carry each side's result.
 const sdResult = (side: Side) => !side.hist.length ? 'queued' : !side.result ? 'playing…'
-  : `${side.result} · ${side.turns} turn${side.turns === 1 ? '' : 's'}`;
+  : `${side.forfeit ? 'forfeit' : side.result} · ${side.turns} turn${side.turns === 1 ? '' : 's'}`;
 const SD_LEGEND = '<span><i></i>red nodes</span><span><i class="dashq"></i>win%</span>';
 
 // The AI plays concurrently, so an analysis auto-opened after your loss usually shows
@@ -1312,6 +1311,20 @@ $('mi-paste').onclick = async () => {
   save();
   renderStrip();
   await startSeed();
+};
+// Give up the seed in progress: a loss like any other, so the AI still plays the seed
+// and the analysis opens over the next one.
+$('mi-forfeit').onclick = async () => {
+  menupop.classList.remove('show');
+  if (!state || state.over || inputLocked || sweeping) return;
+  if (!confirm(`Forfeit Seed ${M.idx + 1}? It counts as a loss.`)) return;
+  cancelSweepOffer();
+  const side = cur().you;
+  Object.assign(side, { result: 'lost', forfeit: 1, turns: state.turn, red: state.counts.red });
+  save();
+  // The board still holds a live game until the next seed is dealt.
+  inputLocked = true; board.selected = null; board.draw();
+  try { await afterYourGame(); } finally { inputLocked = false; }
 };
 
 const SETTINGS = ['nwSweep', 'nwSpeed', 'nwSkillZoom'];
