@@ -34,7 +34,7 @@ function tint(hex: string, white: number, alpha = 1) {
   return `rgba(${rgb.map(c => Math.round(c + (255-c)*white)).join(',')},${alpha})`;
 }
 export const ORDER: readonly Faction[] = ['red','green','yellow','blue','purple'];
-export const SPEEDS = { instant: 0, fast: 0.2 };  // sleep-time multiplier
+export const SPEEDS = { instant: 0, fast: 0.25 };  // sleep-time multiplier
 
 export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -48,8 +48,15 @@ export function dirArrow(f: Point, t: Point) {
 
 // Classic timings follow the reference's distinct focus / attrition / settle beats.
 // Fast scales every beat; Instant skips the entire replay, including queued frames.
-export const TIMING = Object.freeze({ focus: 240, casualty: 140, settle: 300,
+// Casualty beats carry their overshoot past the last frame (see animateBattle), so
+// theirs is the exact pace: 200 is 50ms at Fast, what Fast showed at 60Hz back
+// when a 140 beat rounded up to three frames.
+export const TIMING = Object.freeze({ focus: 240, casualty: 200, settle: 300,
   handoff: 220, reinforce: 520, gap: 100, arrow: 640 });
+// Big stacks count down faster: the casualty pace is multiplied by this for the
+// attacker's current count, so it starts fast and eases back to normal. About 1.2x
+// at 10, 2x at 30, 3x at 50, 5x at 80; any battle from 30 up takes about a second.
+export const stackBoost = (attacker: number) => 1 + (attacker / 30) ** 1.5;
 
 function octagon(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
   ctx.beginPath();
@@ -482,10 +489,11 @@ export class Board {
 
   // A single clock for all phases. Read speed every frame so changing to Instant
   // takes effect during a fight; use a timer fallback when a tab is backgrounded.
-  async _beat(ms: number, frame: (t: number) => void = () => {}) {
-    let elapsed = 0, last = performance.now();
-    if (this.abort || this.instant) return;
-    frame(0); this.draw();
+  // Starts `carry` ms in and returns how far it ran past `ms`.
+  async _beat(ms: number, frame: (t: number) => void = () => {}, carry = 0) {
+    let elapsed = carry, last = performance.now();
+    if (this.abort || this.instant) return 0;
+    frame(Math.min(1, elapsed / ms)); this.draw();
     while (elapsed < ms && !this.abort && !this.instant) {
       await new Promise<void>(resolve => {
         let raf = 0;
@@ -499,6 +507,7 @@ export class Board {
       if (this.battle) this.battle.elapsed = (this.battle.elapsed || 0) + delta;
       frame(Math.min(1, elapsed / ms)); this.draw();
     }
+    return elapsed - ms;
   }
 
   _clearAnimation() {
@@ -520,12 +529,16 @@ export class Board {
       this.overrides.set(from, { strength: a });
       this.overrides.set(to, { strength: d });
       await this._beat(TIMING.focus, t => { this.light = t; });
+      // Each beat hands its overshoot to the next, so the pace follows stackBoost
+      // smoothly instead of snapping to whole frames (fast ones share a frame).
+      let carry = 0;
       for (const f of flips) {
         if (this.abort || this.instant) break;
+        const boost = stackBoost(a);
         if (f === 'd') { d--; this.flashId = to; } else { a--; this.flashId = from; }
         this.overrides.set(from, { strength: a });
         this.overrides.set(to, { strength: Math.max(d, 0) });
-        await this._beat(TIMING.casualty, t => { this.pulse = 1 - t; });
+        carry = await this._beat(TIMING.casualty / boost, t => { this.pulse = 1 - t; }, carry);
       }
       this.overrides.clear();
       anim[from].strength = e.fromStrength;

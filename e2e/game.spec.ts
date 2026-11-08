@@ -175,7 +175,7 @@ test('the bolt toggles instant animations and remembers it', async ({ page }) =>
   await bolt.tap()
   await expect(bolt).toHaveAttribute('aria-pressed', 'false')
   expect(await page.evaluate(() => [window.__nw.board.speed, localStorage.getItem('nwSpeed')]))
-    .toEqual([0.2, 'fast'])
+    .toEqual([0.25, 'fast'])
   await bolt.tap()
   expect(await page.evaluate(() => [window.__nw.board.speed, localStorage.getItem('nwSpeed')]))
     .toEqual([0, 'instant'])
@@ -187,7 +187,7 @@ test('animations default to fast', async ({ page, browser }) => {
   await fresh.goto(page.url())
   await ready(fresh)
   await expect(fresh.locator('#bolt')).toHaveAttribute('aria-pressed', 'false')
-  expect(await fresh.evaluate(() => window.__nw.board.speed)).toBe(0.2)
+  expect(await fresh.evaluate(() => window.__nw.board.speed)).toBe(0.25)
   await context.close()
 })
 

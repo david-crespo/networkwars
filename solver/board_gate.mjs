@@ -174,5 +174,16 @@ for (const speed of [1, .25, 2]) {
   assert.equal(board.battle.elapsed, 100);
   board.battle = null;
 }
+// Carried time: a beat starting past its length passes the rest on without a frame;
+// otherwise it runs whole frames and returns its overshoot.
+board.abort = false; board.speed = 1;
+assert.equal(await board._beat(100, () => {}, 150), 50);
+{
+  let left;
+  const p = board._beat(100, () => {}, 30).then(v => { left = v; });
+  for (let i = 0; i < 3; i++) { now += 25; nextFrame(); await Promise.resolve(); await Promise.resolve(); }
+  await p;
+  assert.equal(left, 5);
+}
 globalThis.performance = realPerformance;
 console.log(`BOARD-GATE PASS: ${captures} captures, ${repels} repels, turn/reinforcement boundaries, speed and skip`);
