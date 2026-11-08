@@ -1128,6 +1128,7 @@ function paintSel() {
   // On your moves a bar hangs down by the win% the review says it gave up, filling
   // in as scoring lands. No hues: red/yellow/green are factions on the board.
   const rv = sdTab === 'you' ? side.review : null;
+  $('sd-strip').style.setProperty('--n', String(side.moves.length || 1));
   $('sd-strip').innerHTML = side.moves.map((mv, k) => {
     const sm = rv?.moves[k];
     const cls = sdTab === 'ai' ? 'ai' : !sm ? 'pend' : sm.dead ? 'dead' : '';
