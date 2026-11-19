@@ -70,8 +70,9 @@ export function skillTrend(history: SkillGame[], zoom = Infinity) {
   const points = history.map((game, i) => {
     const window = history.slice(Math.max(0, i - TREND_GAMES + 1), i + 1);
     const values = window.flatMap(g => g.value != null ? [g.value] : []);
-    return { ...game, trend: game.value != null && window.every(g => g.status === 'complete')
-      && values.length ? mean(values) : null };
+    // A scored game with no live decisions has no value of its own but doesn't
+    // break the line. Only a game still waiting for its review does.
+    return { ...game, trend: window.every(g => g.status === 'complete') && values.length ? mean(values) : null };
   });
   return Number.isFinite(zoom) ? points.slice(-zoom) : points;
 }

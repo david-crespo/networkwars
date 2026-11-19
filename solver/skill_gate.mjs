@@ -42,6 +42,9 @@ assert.equal(skillHistory(partial, new Set(), { 39: 'failure' })[39].status, 'fa
 assert.equal(compare(partial).state, 'incomplete');
 assert.equal(skillTrend(skillHistory(partial)).at(-1).trend, null);
 assert.notEqual(skillTrend(history).at(-1).trend, null, 'unavailable games do not leave chart gaps');
+const quiet = games(12, 5);
+quiet[30].you.review.moves[0].dead = true;
+assert.notEqual(skillTrend(skillHistory(quiet))[30].trend, null, 'a scored game with no live decisions does not break the trend');
 assert.deepEqual(skillTrend(history, 10), skillTrend(history).slice(-10), 'zoom preserves trailing context and gaps');
 // Earlier unavailable history does not prevent a fully covered recent comparison.
 assert.equal(compare([...missing, ...games(12, 5)]).state, 'better');

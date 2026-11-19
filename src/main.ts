@@ -860,8 +860,10 @@ function drawSkill(cv: HTMLCanvasElement, games: TrendPoint[]) {
     drawing = true;
   });
   g.strokeStyle = YOU_COL; g.lineWidth = 2.5; g.lineJoin = 'round'; g.stroke();
+  // Mark the latest point, and any point with no neighbor to draw a line to.
   games.forEach((p, i) => {
-    if (p.trend == null || (i < games.length - 1 && games[i + 1].trend != null)) return;
+    const alone = games[i - 1]?.trend == null && games[i + 1]?.trend == null;
+    if (p.trend == null || !(alone || i === games.length - 1)) return;
     g.fillStyle = YOU_COL; g.beginPath(); g.arc(xOf(i), yOf(p.trend), 3, 0, Math.PI * 2); g.fill();
   });
 }
