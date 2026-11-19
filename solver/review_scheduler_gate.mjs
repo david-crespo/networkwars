@@ -126,11 +126,15 @@ const gradeValues = async (bestQ, myQ) => {
         { owner: 'green', strength: 1, x: 1, y: 0 }] }
     : { done: true, sims: REVIEW_SIMS, all: [
         { action: 1, from: 0, to: 1, visits: 2000, q: bestQ },
-        { action: -1, visits: 1000, q: myQ }] };
+        { action: -1, visits: 1000, q: myQ },
+        { action: 1 << 8, from: 1, to: 0, visits: 0, q: 0 }] };
   return createReviewer(create, 1).grade(r);
 };
 // Gaps are in calibrated win% points, not raw Q.
 const thrown = await gradeValues(.995, .1);
+// Every visited root move is kept in engine order, the played end turn included.
+assert.deepEqual(thrown.moves[0].acts, [1, -1]);
+assert.deepEqual(thrown.moves[0].qs, [.995, .1]);
 assert.equal(thrown.nLive, 1);
 assert.equal(thrown.moves[0].dead, false);
 assert.ok(Math.abs(thrown.moves[0].gap - 100 * (gradedWinProb(.995) - gradedWinProb(.1))) < 1e-3);

@@ -126,9 +126,10 @@ pass). `/load-board` is for `rules_worker_gate.mjs` only. Failures come back as 
   there, fit by `solver/calibrate.py`; refit after a search change). A decision is
   excluded only when both calibrated values sit in the same extreme band (≤2% or ≥98%),
   so throwing away a won game still counts. Bump `REVIEW_VERSION` when grading results
-  change. The
-  page drops the pool to one lane while the AI plays, so grading doesn't starve it, and
-  never to zero, so an open analysis keeps progressing.
+  change. Each graded move also keeps every visited root move's action and Q (`acts`,
+  `qs`) for later analysis; a trim drops them. The page drops the pool to one lane
+  while the AI plays, so grading doesn't starve it, and never to zero, so an open
+  analysis keeps progressing.
 - **Sweep-up** (opt-in): auto-plays a won game with the engine's mop-up policy. The offer
   is gated on a Monte-Carlo certificate of that policy, not on a search win%, which
   measures how the search would play and can't tell 99% from 100%. A playout that stalls

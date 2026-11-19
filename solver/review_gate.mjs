@@ -68,6 +68,11 @@ if (!isMainThread) {
   if (par.partials !== moves.length) fail(`expected ${moves.length} partial callbacks, got ${par.partials}`);
   if (!par.orderOk) fail('partial.done disagrees with the scored count');
   if (NW > 1 && !par.holesSeen) fail('parallel review never reported an in-flight hole');
+  par.out.moves.forEach((m, k) => {
+    const played = moves[k].e ? -1 : moves[k].a[0] << 8 | moves[k].a[1];
+    if (!m.acts || m.acts.length !== m.qs?.length || !m.acts.includes(played))
+      fail(`move ${k + 1}: root move values missing or without the played move`);
+  });
   console.log(`seed ${seed}: ${moves.length} decisions, ${ser.out.nLive} live; serial ${(ser.ms / 1000).toFixed(1)}s, `
     + `x${NW} ${(par.ms / 1000).toFixed(1)}s (${(ser.ms / par.ms).toFixed(1)}x); identical=${fails === 0}`);
 

@@ -187,7 +187,10 @@ export function createReviewer(makeEngine: () => Api, workers = REVIEW_WORKERS,
         : best.from == null || best.to == null ? 'end' as const
         : { f: pip(s.nodes[best.from]), t: pip(s.nodes[best.to]) };
       const myQ = scored ? r4(mine.q) : null, bestQ = best ? r4(best.q) : null;
-      return { n: k + 1, turn: s.turn, isEnd, label, bestLbl, myQ, bestQ, ...scoreDecision(bestQ, myQ) };
+      // Every visited root move, for later analysis of the whole choice set.
+      const seen = all.filter(m => m.visits > 0);
+      return { n: k + 1, turn: s.turn, isEnd, label, bestLbl, myQ, bestQ, ...scoreDecision(bestQ, myQ),
+        acts: seen.map(m => m.action), qs: seen.map(m => r4(m.q)!) };
     };
 
     // Hand the worker back after each position. Higher-priority reviews get the

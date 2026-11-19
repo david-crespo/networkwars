@@ -149,7 +149,11 @@ export interface HistPoint {
   s: number
 }
 
-/** A graded decision. Trimmed rounds keep only gap, dead and ms. */
+/**
+ * A graded decision. `acts` and `qs` have every visited root move's RankedMove
+ * action and Q, in the engine's order; older saved reviews omit them. Trimmed
+ * rounds keep only gap, dead, and ms.
+ */
 export interface ReviewMove {
   gap: number | null
   dead: boolean
@@ -161,6 +165,8 @@ export interface ReviewMove {
   bestLbl?: Label | 'end' | null
   myQ?: number | null
   bestQ?: number | null
+  acts?: number[]
+  qs?: number[]
 }
 
 export interface Review {
