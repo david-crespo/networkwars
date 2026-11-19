@@ -87,16 +87,22 @@ delete globalThis.window;
 
 // The moving arrow must stay on the attack vector in every compass direction,
 // advance toward the defender, and keep both tip and tail between the node rims.
+// It fades in and out, so nothing is drawn at progress 0 or 1.
 let triangle = [];
 const arrow = new Board({ getContext: () => ({
   beginPath() { triangle = []; }, moveTo(x,y) { triangle.push({x,y}); },
-  lineTo(x,y) { triangle.push({x,y}); }, closePath() {}, fill() {},
+  lineTo(x,y) { triangle.push({x,y}); }, closePath() {}, fill() {}, save() {}, restore() {},
 }) }, {});
 arrow.layout.r = 20;
 for (const [x, y] of [[90,0], [90,90], [0,90], [-90,90], [-90,0], [-90,-90], [0,-90], [90,-90]]) {
   const length = Math.hypot(x,y), ux = x/length, uy = y/length;
   let last = 0;
-  for (const progress of [0, .25, .5, .75, 1]) {
+  for (const progress of [0, 1]) {
+    triangle = [];
+    arrow._drawArrow({x:0,y:0}, {x,y}, '#fff', progress);
+    assert.equal(triangle.length, 0);
+  }
+  for (const progress of [.01, .25, .5, .75, .99]) {
     arrow._drawArrow({x:0,y:0}, {x,y}, '#fff', progress);
     const [tip, left, right] = triangle;
     const tail = { x:(left.x+right.x)/2, y:(left.y+right.y)/2 };
@@ -110,10 +116,11 @@ for (const [x, y] of [[90,0], [90,90], [0,90], [-90,90], [-90,0], [-90,-90], [0,
 }
 
 // Glow frames must not change sprite bounds or compress/scale the numerals.
-let images = [];
+let images = [], spriteBounds;
 const paint = new Board({ getContext: () => ({
   clearRect() {}, setLineDash() {}, drawImage(...args) { images.push(args.slice(1)); },
   save() {}, restore() {}, translate() {}, fillText() {},
+  beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, stroke() {},
   scale() { assert.fail('node drawing must not scale'); },
 }) }, {});
 paint._skin = () => ({ cv: {}, size: 100 });
@@ -123,7 +130,12 @@ paint.battle = { from:0, to:0 };
 for (const light of [0,.4,.78]) for (const pulse of [0,.5,1]) {
   paint.light = light; paint.pulse = pulse; paint.flashId = 0;
   images = []; paint.draw();
-  for (const bounds of images) assert.deepEqual(bounds, [-50,-50,100,100]);
+  // The top face is drawn above the node's ground position by the prism's wall
+  // height, which depends on the army count. So y is taken from the first frame
+  // and must match in every frame.
+  spriteBounds ??= images[0];
+  assert.deepEqual([spriteBounds[0], spriteBounds[2], spriteBounds[3]], [-50,100,100]);
+  for (const bounds of images) assert.deepEqual(bounds, spriteBounds);
   assert(!paint.ctx.font.includes('Narrow'));
 }
 
