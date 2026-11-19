@@ -11,6 +11,7 @@ declare global {
       state: () => any
       locked: () => boolean
       model: () => { rounds: any[]; idx: number }
+      archive: () => Promise<Record<number, any>>
     }
   }
 }
@@ -245,6 +246,63 @@ test('Save Data then Load Data moves the tally to a fresh browser', async ({ pag
   const loaded = await current(other)
   expect(loaded.round.seed).toBe(exported.tally.rounds[0].seed)
   expect(loaded.round.you.moves).toHaveLength(1)
+  await fresh.close()
+})
+
+test('a trim archives the full game, and Save Data then Load Data carries the archive', async ({ page: base, browser }, info) => {
+  // Finished, fully reviewed rounds just over the 2M-char save cap, so the first
+  // save (dealing a new seed after the last) trims the oldest one.
+  const label = { f: { owner: 'red', strength: 3, x: 1, y: 2 }, t: { owner: 'green', strength: 1, x: 3, y: 4 } }
+  const finished = (seed: number) => ({
+    seed, rules: 2, at: seed, startNodes: [{ x: 0, y: 0, owner: 'red', strength: 1 }],
+    you: { result: 'won', turns: 9, red: 24, hist: [{ t: 1, n: 6, s: 12 }],
+      moves: Array.from({ length: 2000 }, (_, t) => ({ a: [0, 1], l: label, t, ms: 500 })),
+      review: { version: 3, source: 'seeded', n: 1, nLive: 1, meanLoss: 3, counts: [1, 0, 0, 0],
+        moves: [{ gap: 3, dead: false, n: 1, turn: 1, isEnd: false, label, bestLbl: null,
+          myQ: .5, bestQ: .52, acts: [1, -1], qs: [.52, .5] }] } },
+    ai: { result: 'lost', turns: 9, red: 0, moves: [{ e: 1 }], hist: [] },
+  })
+  const tally = { rounds: Array.from({ length: 9 }, (_, i) => finished(i + 1)), idx: 8 }
+  const json = JSON.stringify(tally)
+  expect(json.length).toBeGreaterThan(2e6)
+
+  const context = await browser.newContext(iphone18ProSafari)
+  await context.addInitScript((json) => {
+    if (sessionStorage.getItem('seeded')) return
+    sessionStorage.setItem('seeded', '1')
+    localStorage.setItem('nwH2H', json)
+  }, json)
+  const page = await context.newPage()
+  await page.goto(base.url())
+  await ready(page)
+  const trimmed = await page.evaluate(() => window.__nw.model().rounds.flatMap((r, i) => r.trim ? [i] : []))
+  expect(trimmed[0]).toBe(0)
+  const full = Object.fromEntries(trimmed.map(i => [i, tally.rounds[i]]))
+  await expect.poll(() => page.evaluate(() => window.__nw.archive())).toEqual(full)
+
+  await page.locator('#menu').tap()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#mi-export').tap()])
+  const file = info.outputPath('export.json')
+  await download.saveAs(file)
+  const exported = JSON.parse(fs.readFileSync(file, 'utf8'))
+  expect(exported.tally.rounds[0].trim).toBe(1)
+  expect(exported.archive).toEqual(full)
+  expect(exported.diagnostics.archiveRecords).toBe(trimmed.length)
+  expect(exported.diagnostics.lastArchiveError).toBeNull()
+
+  const fresh = await browser.newContext(iphone18ProSafari)
+  const other = await fresh.newPage()
+  await other.goto(base.url())
+  await ready(other)
+  other.on('dialog', (d) => d.accept())
+  await other.locator('#menu').tap()
+  const [chooser] = await Promise.all([other.waitForEvent('filechooser'), other.locator('#mi-import').tap()])
+  await Promise.all([other.waitForEvent('load'), chooser.setFiles(file)])
+  await ready(other)
+  expect(await other.evaluate(() => window.__nw.archive())).toEqual(exported.archive)
+  for (const p of [page, other])
+    expect(await p.evaluate(() => JSON.parse(localStorage.getItem('nwErrors') || '[]'))).toEqual([])
+  await context.close()
   await fresh.close()
 })
 

@@ -18,8 +18,8 @@ by decompiling the shipped IPA.
   in a Web Worker; `fastnw.ts` marshals the WASM exports; `board.ts` draws and animates
   the board; `review.ts` scores decisions; `calibration.ts` maps search Q to win%;
   `skill.ts` and `projections.ts` compute the skill comparison and win% curves;
-  `replay.ts` caches inspector trajectories; `types.ts` has the shared shapes; `sw.ts`
-  is the service worker.
+  `replay.ts` caches inspector trajectories; `archive.ts` stores trimmed games in
+  IndexedDB; `types.ts` has the shared shapes; `sw.ts` is the service worker.
 - `solver/`: the Python lab, the node gates and most docs. Python is for scripting and
   analysis (process pools, stats, fits) and implements no rules. `fastnw.py` loads
   `engine/target/release/libnw_engine.dylib` via ctypes (`NW_ENGINE_SO` overrides);
@@ -140,6 +140,9 @@ pass). `/load-board` is for `rules_worker_gate.mjs` only. Failures come back as 
   strips replay detail from the oldest finished pairs and keeps results and review gaps.
   Unscored pairs may lose labels and history but must keep their action sequences, or
   they can never be graded and sit in the backlog forever. Failed saves are reported.
+  Before a trim strips a round, `trimOldest` copies it in full to the IndexedDB archive
+  (`archive.ts`, keyed by round index). Save Data exports the archive beside `tally`.
+  Load Data replaces it. Nothing else reads it, so trimmed games still can't be opened.
 - **Errors.** A phone has no console, so errors, worker failures, stalled requests and
   failed saves go through `reportError` to the menu's Errors panel. Save Data (JSON)
   exports the tally with a diagnostics block for debugging a device offline.

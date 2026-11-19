@@ -50,24 +50,44 @@ assert.deepEqual(skillTrend(history, 10), skillTrend(history).slice(-10), 'zoom 
 assert.equal(compare([...missing, ...games(12, 5)]).state, 'better');
 assert.deepEqual(skillHistory([{ you: { result: null } }]), []);
 
+const archived = [];
 const ctx = vm.createContext({ console, M: { rounds: [], idx: -1 }, reviewing: new Set(),
-  trimNoted: true, reviewErr: {}, scoreBusy: false });
+  trimNoted: true, reviewErr: {}, scoreBusy: false,
+  archivePut: async (i, r) => { archived.push([i, r]); } });
 vm.runInContext(await pageSlice('function trimOldest()', 'function load()'), ctx);
 const unscored = round(10); unscored.you.review = null;
 const finished = round(7);
+finished.you.review.moves[0].bestQ = .5;
 ctx.M.rounds = [unscored, finished];
 assert.equal(ctx.trimOldest(), true);
 assert.equal(finished.trim, 1, 'prefer trimming a scored game');
 assert.equal(finished.you.review.moves[0].gap, 7);
 assert.equal(unscored.you.moves.length, 1);
+// The archive gets the round as it was before the trim.
+assert.equal(archived.length, 1);
+let [at, copy] = archived[0];
+assert.equal(at, 1);
+assert.equal(copy.trim, undefined);
+assert.deepEqual(copy.you.moves, [{ e: 1, l: 'label' }], 'archived copy keeps the moves');
+assert.equal(copy.you.review.moves[0].bestQ, .5, 'archived copy keeps the full review');
+assert.equal(finished.you.review.moves[0].bestQ, undefined);
 assert.equal(ctx.trimOldest(), true);
 assert.equal(unscored.lean, 1);
 assert.equal(unscored.you.moves[0].e, 1, 'retain actions needed for scoring');
 assert.equal(unscored.you.moves[0].l, undefined);
+[at, copy] = archived[1];
+assert.equal(at, 0);
+assert.equal(copy.lean, undefined);
+assert.equal(copy.you.moves[0].l, 'label', 'archived copy keeps labels the lean trim drops');
 assert.equal(ctx.trimOldest(), false, 'do not discard the remaining unscored actions');
-unscored.you.review = round(10).you.review;
+assert.equal(archived.length, 2);
+const graded = round(10).you.review;
+unscored.you.review = graded;
 assert.equal(ctx.trimOldest(), true, 'compact queued games can be fully trimmed after grading');
 assert.equal(unscored.trim, 1);
+[at, copy] = archived[2];
+assert.equal(copy.lean, 1, 'a lean round is archived lean, for archivePut to merge');
+assert.equal(copy.you.review, graded, 'its finished review reaches the archive');
 // Think time survives both trims: the lean pass keeps it on the actions, the full
 // trim moves it into the compact review next to each decision's gap.
 const timedRound = round(9, 2);

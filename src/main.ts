@@ -32,6 +32,7 @@ import { LEGACY_RULES_VERSION, RULES_VERSION } from './game-version.ts';
 import { winProb } from './calibration.ts';
 import { aiWinCurve, youWinCurve, type CurvePoint } from './projections.ts';
 import { createReplayInspector } from './replay.ts';
+import { archiveAll, archivePut, archiveReplace, archiveWrites } from './archive.ts';
 import { skillHistory, skillComparison, skillTrend, type SkillGame } from './skill.ts';
 import engineWorkerUrl from './engine.worker.ts?worker&url';
 import type { Api, Faction, GameView, HistPoint, Label, Move, NodeView, Pip, Reply, Round, SearchResult,
@@ -51,8 +52,9 @@ board.onReplay = (faction, nodes) => renderHeader(faction, nodes);
 
 let state: GameView | null = null;   // authoritative view of YOUR game
 let inputLocked = false;
-// Read-only hook for the e2e tests (e2e/), which need node positions on the canvas.
-(window as any).__nw = { board, state: () => state, locked: () => inputLocked, model: () => M };
+// Read-only hook for the e2e tests (e2e/), which need node positions on the canvas
+// and the archive's records.
+(window as any).__nw = { board, state: () => state, locked: () => inputLocked, model: () => M, archive: archiveAll };
 
 // ---- diagnostics: never shown in the UI, only written into the data export, so a
 // device-specific failure (e.g. the AI stalling on a phone but not on a desktop)
@@ -60,7 +62,7 @@ let inputLocked = false;
 interface ReportedError { src: string; msg: string; n: number; at: string; v: string; trail: string[]; prev?: 1 }
 const diag = { started: new Date().toISOString(),
   events: [] as ({ t: number; ev: string } & Record<string, unknown>)[],
-  saveFails: 0, lastSaveError: null as string | null,
+  saveFails: 0, lastSaveError: null as string | null, lastArchiveError: null as string | null,
   aiSearches: 0, aiSims: 0, aiSearchMs: 0, aiSearchMaxMs: 0, errors: [] as ReportedError[] };
 function note(ev: string, detail?: object) {
   diag.events.push({ t: Math.round(performance.now()) / 1000, ev, ...detail });
@@ -222,7 +224,9 @@ const randSeed = () => Math.floor(Math.random() * 0x7ffffffe) + 1;
 // quota error) by stripping REPLAY DETAIL from the oldest finished pairs: moves,
 // labels, per-turn history and the start board go; the W-L result and the review's
 // per-decision gaps (what the tally cards and the skill graph read) stay. A
-// trimmed seed just can't be opened in the analysis panel any more.
+// trimmed seed just can't be opened in the analysis panel any more. Before
+// stripping a round, a trim copies it in full to the IndexedDB archive
+// (archive.ts), so the data export still has every game complete.
 const SAVE_CAP = 2.0e6;       // chars (~100 seeds of full detail) — headroom under Safari's quota
 let trimNoted = false;
 let saveFrozen = false;       // set once an imported tally is stored, until the reload
@@ -253,6 +257,12 @@ function trimOldest() {
   if (i < 0) i = M.rounds.findIndex((r, k) => eligible(r, k) && !r.lean);
   if (i < 0) return false;
   const r = M.rounds[i];
+  // Archive before stripping. Both strips below assign new arrays and a new review
+  // rather than mutating the old ones in place, so this shallow copy retains the
+  // full detail. A round already made lean is archived lean; archivePut merges its
+  // review and results into the fuller record stored earlier. The trim never
+  // awaits the archive.
+  archivePut(i, { ...r, you: { ...r.you }, ai: { ...r.ai } }).catch(archiveFailed);
   if (r.you.review && !r.you.review.partial) trimRound(r);
   else {
     r.lean = 1;
@@ -281,6 +291,10 @@ function trimRound(r: Round) {
         moves: rv.moves.map((m, k) => m && { gap: m.gap, dead: m.dead,
           ...(played[k]?.ms != null && { ms: played[k].ms }) }) }
     : null;
+}
+function archiveFailed(e: unknown) {
+  diag.lastArchiveError = String(e);
+  reportError('archive', errMsg(e));
 }
 function load(): Tally | null {
   try {
@@ -1309,7 +1323,19 @@ async function scorePump() {
 // ============================ menu (hamburger) ============================
 // Seed sharing, the sweep-up toggle and data export/import.
 const menupop = $('menupop');
-$('menu').onclick = () => menupop.classList.toggle('show');
+// Save Data must start its download during the tap's user activation: Safari can
+// refuse a later download, and an IndexedDB read always finishes in a later task.
+// Opening the menu therefore starts reading the archive. The export uses that copy
+// synchronously if the read has finished and no trim has archived a round since;
+// otherwise it awaits a fresh read, so the download is best effort.
+type ArchiveCopy = { writes: number; records?: Record<number, Round> | null; read: Promise<Record<number, Round> | null> };
+let archiveCopy: ArchiveCopy | null = null;
+function readArchive(): ArchiveCopy {
+  const copy: ArchiveCopy = { writes: archiveWrites, read: archiveAll().catch(e => { archiveFailed(e); return null; }) };
+  copy.read.then(r => { copy.records = r; });
+  return copy;
+}
+$('menu').onclick = () => { archiveCopy = menupop.classList.toggle('show') ? readArchive() : null; };
 document.addEventListener('click', (e) => {
   if (menupop.classList.contains('show') && !$('menuwrap').contains(e.target as Node))
     menupop.classList.remove('show');
@@ -1358,21 +1384,26 @@ const SETTINGS = ['nwSweep', 'nwSpeed', 'nwSkillZoom'];
 // ---- data export: the whole tally (every seed, move list and review) + settings as
 // one JSON download, plus the session's diagnostics (see `diag`). The in-memory
 // tally is exported, not the stored copy: it is never older, and if saves have been
-// failing it is the only complete one. ----
-$('mi-export').onclick = () => {
+// failing it is the only complete one. `archive` has the full detail of every
+// trimmed game, by round index (null when it can't be read). ----
+$('mi-export').onclick = async () => {
   menupop.classList.remove('show');
   save();
+  const copy = archiveCopy?.writes === archiveWrites ? archiveCopy : readArchive();
+  archiveCopy = null;
+  const archive = copy.records !== undefined ? copy.records : await copy.read;
   const get = (k: string) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const tally = JSON.stringify(M), stored = get(KEY), now = performance.now();
   const data = {
     app: 'network-wars-h2h', exported: new Date().toISOString(),
-    tally: M,
+    tally: M, archive,
     settings: Object.fromEntries(SETTINGS.map(k => [k, get(k)])),
     diagnostics: {
       userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency,
       reviewWorkers: reviewer.workers, tallyChars: tally.length,
       storedChars: stored == null ? null : stored.length, storedInSync: stored === tally,
       aiBusy, aiErr, reviewErr, reviewing: [...reviewing],
+      archiveRecords: archive ? Object.keys(archive).length : null,
       inFlight: engines.flatMap(e => [...e.pending.values()].map(p =>
         ({ engine: e.name, path: p.path, ageS: Math.round(now - p.t) / 1000 }))),
       ...diag,
@@ -1386,8 +1417,8 @@ $('mi-export').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 };
 
-// ---- data import: replace the tally + settings with a Save Data export (e.g. to
-// move a tally to another deploy, since localStorage is per origin). The page then
+// ---- data import: replace the tally, archive, and settings with a Save Data export
+// (e.g. to move a tally to another deploy, since localStorage is per origin). The page then
 // reloads so the workers and pumps start over on the imported tally; until then
 // saves are frozen so in-flight AI/review results for the old tally can't write
 // into it. Diagnostics and the error log are not imported. ----
@@ -1407,12 +1438,19 @@ importInput.onchange = async () => {
   if (!confirm(`Replace this tally (${M.rounds.length} seeds) with the file's (${t.rounds.length} seeds)?`)) return;
   const old = M;
   M = t;
+  // Replace the archive before saving: if saving trims the imported tally, it
+  // archives the trimmed rounds. IndexedDB runs transactions in creation order, so
+  // those writes land after the replace. If storing the tally fails, the archive
+  // still has the imported records.
+  const archived = archiveReplace(data.archive && typeof data.archive === 'object' ? data.archive : {})
+    .catch(archiveFailed);
   if (!save()) { M = old; save(); alert('Could not store the imported tally.'); return; }
   saveFrozen = true;
   for (const k of SETTINGS) {
     const v = data.settings?.[k];
     try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) {}
   }
+  await archived;   // the tally is stored even if this failed
   location.reload();
 };
 
